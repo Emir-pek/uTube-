@@ -25,26 +25,32 @@ RESOLUTION_TARGETS = {
 
 def get_ffmpeg_path() -> str:
     """
-    Find FFmpeg executable via system PATH.
+    Find FFmpeg executable via system PATH or FFMPEG_PATH env var.
     Returns the resolved path if found, otherwise returns 'ffmpeg'
     so that downstream calls produce a clear FileNotFoundError.
     """
+    env_path = os.getenv("FFMPEG_PATH")
+    if env_path and os.path.isfile(env_path):
+        return env_path
     path = shutil.which("ffmpeg")
     if path:
         return path
-    logger.warning("FFmpeg not found in system PATH.")
+    logger.warning("FFmpeg not found in system PATH or FFMPEG_PATH env var.")
     return "ffmpeg"
 
 
 def get_ffprobe_path() -> str:
     """
-    Find FFprobe executable via system PATH.
+    Find FFprobe executable via FFPROBE_PATH env var or system PATH.
     Returns the resolved path if found, otherwise returns 'ffprobe'.
     """
+    env_path = os.getenv("FFPROBE_PATH")
+    if env_path and os.path.isfile(env_path):
+        return env_path
     path = shutil.which("ffprobe")
     if path:
         return path
-    logger.warning("FFprobe not found in system PATH.")
+    logger.warning("FFprobe not found in system PATH or FFPROBE_PATH env var.")
     return "ffprobe"
 
 
@@ -96,32 +102,54 @@ def probe_video_resolution(video_path: str) -> dict:
     Use ffprobe to get the original video's width and height.
     Returns {"width": int, "height": int} or empty dict on failure.
     """
+    ffprobe_path = get_ffprobe_path()
+    print(f"[FFPROBE] Using executable: {ffprobe_path}")
+    print(f"[FFPROBE] Probing file: {video_path}")
+
     try:
         cmd = [
-            get_ffprobe_path(),
+            ffprobe_path,
             "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=width,height",
             "-of", "json",
             video_path
         ]
+        print(f"[FFPROBE] Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
         if result.returncode != 0:
-            logger.error(f"ffprobe failed: {result.stderr}")
+            logger.error(f"ffprobe failed (code {result.returncode}): {result.stderr}")
+            print(f"❌ [FFPROBE ERROR] Exit code {result.returncode}")
+            print(f"--- ffprobe STDERR ---\n{result.stderr}\n----------------------")
             return {}
 
         data = json.loads(result.stdout)
         streams = data.get("streams", [])
         if streams:
-            return {
-                "width": int(streams[0].get("width", 0)),
-                "height": int(streams[0].get("height", 0))
-            }
+            width = int(streams[0].get("width", 0))
+            height = int(streams[0].get("height", 0))
+            print(f"✅ [FFPROBE] Detected resolution: {width}x{height}")
+            return {"width": width, "height": height}
+        else:
+            print("❌ [FFPROBE] No video streams found in ffprobe output.")
+            logger.error("ffprobe returned no video streams.")
+            return {}
+
     except FileNotFoundError:
-        logger.error("FFprobe executable not found. Cannot probe video resolution.")
-        print("⚠️  FFprobe is not installed or not found in PATH.")
+        logger.error(f"FFprobe executable not found at '{ffprobe_path}'.")
+        print(f"❌ [FFPROBE ERROR] Executable not found at '{ffprobe_path}'.")
+        print("   Fix: Set the FFPROBE_PATH environment variable to the full path of ffprobe.")
+        print("   Example: set FFPROBE_PATH=C:\\ffmpeg\\bin\\ffprobe.exe")
+    except subprocess.TimeoutExpired:
+        logger.error("ffprobe timed out after 30 seconds.")
+        print("❌ [FFPROBE ERROR] Timed out after 30 seconds.")
+    except json.JSONDecodeError as e:
+        logger.error(f"ffprobe returned invalid JSON: {e}")
+        print(f"❌ [FFPROBE ERROR] Could not parse output as JSON: {e}")
     except Exception as e:
-        logger.error(f"ffprobe error: {e}")
+        logger.error(f"ffprobe unexpected error: {e}")
+        print(f"❌ [FFPROBE ERROR] Unexpected error: {e}")
     return {}
 
 
@@ -220,7 +248,7 @@ def transcode_video(video_id: int, source_path: str, videos_dir: str, db_session
     print(f"[TRANSCODE] Original resolution: {info.get('width', '?')}x{original_height}")
 
     if original_height == 0:
-        print("[TRANSCODE] Could not determine resolution. Keeping original only.")
+        print("[TRANSCODE] Could not determine resolution via ffprobe. Keeping original only to prevent upscaling.")
         _update_resolutions(video_id, db_session_factory, {"original": os.path.basename(source_path)}, status="published")
         return
 

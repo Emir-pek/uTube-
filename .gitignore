@@ -24,14 +24,7 @@ storage/
 *.mp4
 *.tmp
 
-# === Ortam Değişkenleri (Environment) ===
-.env
-.env.local
-.env.development
-.env.staging
-.env*.local
-!.env.example
-!.env.production
+
 
 # === Git & İşletim Sistemi Geçici Dosyaları ===
 git_*_temp.txt
