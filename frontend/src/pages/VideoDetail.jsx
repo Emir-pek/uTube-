@@ -317,7 +317,7 @@ const VideoDetail = () => {
         }
         setPlaylistLoading(true);
 
-        if (listId === 'watch_later') {
+        if (listId === 'watch_later' || listId === 'watch-later') {
             ApiClient.get('/users/watch-later')
                 .then(res => {
                     setPlaylistData({
