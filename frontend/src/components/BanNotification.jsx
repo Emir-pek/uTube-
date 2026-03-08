@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import CustomWarningDialog from './CustomWarningDialog';
 
 const BanNotification = ({ banInfo, onAcknowledge }) => {
+  if (!banInfo) return null;
   const { reason, expires_at, banned_by, duration, type } = banInfo;
   
   // A ban is permanent if expires_at is null or not provided
