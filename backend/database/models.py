@@ -124,6 +124,20 @@ class User(Base):
         lazy="dynamic"
     )
     
+    playlists = relationship(
+        "Playlist",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+    
+    watch_later_videos = relationship(
+        "WatchLater",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+    
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
 
@@ -238,6 +252,18 @@ class Video(Base):
         back_populates="video",
         cascade="all, delete-orphan",  # Delete likes when video is deleted
         lazy="dynamic"
+    )
+    
+    playlist_entries = relationship(
+        "PlaylistVideo",
+        back_populates="video",
+        cascade="all, delete-orphan"
+    )
+    
+    watch_later_entries = relationship(
+        "WatchLater",
+        back_populates="video",
+        cascade="all, delete-orphan"
     )
     
     def __repr__(self):
@@ -682,3 +708,107 @@ class AdminWarning(Base):
 
     def __repr__(self):
         return f"<AdminWarning(id={self.id}, target_user={self.target_user_id}, title='{self.title[:30]}')>"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Playlist System
+# ══════════════════════════════════════════════════════════════════════════════
+
+class Playlist(Base):
+    """
+    Playlist model for user-created video collections (YouTube-style).
+    
+    Attributes:
+        id: Primary key
+        title: Playlist title
+        description: Optional description
+        visibility: public or private
+        user_id: Foreign key to User (playlist owner)
+        created_at: When the playlist was created
+        updated_at: Last modification timestamp
+        
+    Relationships:
+        owner: The user who created this playlist
+        entries: Ordered list of PlaylistVideo entries
+    """
+    __tablename__ = "playlists"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    visibility = Column(String(20), nullable=False, default="public")  # public, private
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    owner = relationship("User", back_populates="playlists")
+    entries = relationship(
+        "PlaylistVideo",
+        back_populates="playlist",
+        cascade="all, delete-orphan",
+        order_by="PlaylistVideo.order_index"
+    )
+    
+    def __repr__(self):
+        return f"<Playlist(id={self.id}, title='{self.title}', owner_id={self.user_id})>"
+
+
+class PlaylistVideo(Base):
+    """
+    Junction table linking Videos to Playlists with ordering.
+    
+    Attributes:
+        id: Primary key
+        playlist_id: Foreign key to Playlist
+        video_id: Foreign key to Video
+        order_index: Integer for sort order (0-based)
+        added_at: When the video was added to the playlist
+        
+    Relationships:
+        playlist: The parent playlist
+        video: The linked video
+    """
+    __tablename__ = "playlist_videos"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    playlist_id = Column(Integer, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False, index=True)
+    video_id = Column(Integer, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_index = Column(Integer, nullable=False, default=0)
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    playlist = relationship("Playlist", back_populates="entries")
+    video = relationship("Video", back_populates="playlist_entries")
+    
+    # Unique constraint: a video can only appear once per playlist
+    __table_args__ = (
+        UniqueConstraint('playlist_id', 'video_id', name='unique_playlist_video'),
+    )
+    
+    def __repr__(self):
+        return f"<PlaylistVideo(playlist={self.playlist_id}, video={self.video_id}, order={self.order_index})>"
+
+
+class WatchLater(Base):
+    """
+    WatchLater model for tracking videos a user wants to watch later.
+    """
+    __tablename__ = "watch_later"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    video_id = Column(Integer, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False, index=True)
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    user = relationship("User", back_populates="watch_later_videos")
+    video = relationship("Video", back_populates="watch_later_entries")
+    
+    # Unique constraint: a user can only have a video in watch later once
+    __table_args__ = (
+        UniqueConstraint('user_id', 'video_id', name='unique_user_watch_later'),
+    )
+    
+    def __repr__(self):
+        return f"<WatchLater(user={self.user_id}, video={self.video_id})>"

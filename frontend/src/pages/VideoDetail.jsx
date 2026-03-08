@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import ApiClient from '../utils/ApiClient';
@@ -8,6 +8,7 @@ import VideoPlayer from '../components/VideoPlayer';
 import HoverVideoPreview from '../components/HoverVideoPreview';
 import { getMediaUrl, getAvatarUrl, THUMBNAIL_FALLBACK, AVATAR_FALLBACK, VIDEO_FALLBACK } from '../utils/urlHelper';
 import { UTUBE_USER } from '../utils/authConstants';
+import SaveToPlaylistModal from '../components/SaveToPlaylistModal';
 
 
 
@@ -49,9 +50,21 @@ const SidebarSkeleton = () => (
     </div>
 );
 
+// ── Duration Formatter Helper ──────────────────────────────────────────────
+const fmtDuration = (s) => {
+    if (!s || !isFinite(s)) return '';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+};
+
 const VideoDetail = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const listId = searchParams.get('list'); // null when not in a playlist
+
     const [video, setVideo] = useState(null);
     const [recommendations, setRecommendations] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -63,6 +76,10 @@ const VideoDetail = () => {
     const viewTracked = useRef(false);
     const [isSubscribed, setIsSubscribed] = useState(false);
     const [subLoading, setSubLoading] = useState(false);
+
+    // ── Playlist State ──
+    const [playlistData, setPlaylistData] = useState(null);
+    const [playlistLoading, setPlaylistLoading] = useState(false);
 
     // ── Like State ──
     const [likeCount, setLikeCount] = useState(0);
@@ -91,6 +108,9 @@ const VideoDetail = () => {
     const [isExpanded, setIsExpanded] = useState(false);
     // ── Channel Subscriber Count (author) ──
     const [authorSubCount, setAuthorSubCount] = useState(null);
+
+    // ── Save to Playlist Modal ──
+    const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
 
     // Get current user from localStorage (called once, used throughout)
     const getCurrentUser = () => {
@@ -275,6 +295,41 @@ const VideoDetail = () => {
             checkSubscription();
         }
     }, [video]);
+
+    // ══════════════════════════════════════════════════
+    // Fetch Playlist Data (when ?list= param is present)
+    // ══════════════════════════════════════════════════
+    useEffect(() => {
+        if (!listId) {
+            setPlaylistData(null);
+            return;
+        }
+        setPlaylistLoading(true);
+
+        if (listId === 'watch_later') {
+            ApiClient.get('/users/watch-later')
+                .then(res => {
+                    setPlaylistData({
+                        title: 'Watch Later',
+                        videos: res.data
+                    });
+                })
+                .catch(err => {
+                    console.error('Watch later fetch error:', err);
+                    setPlaylistData(null);
+                })
+                .finally(() => setPlaylistLoading(false));
+            return;
+        }
+
+        ApiClient.get(`/playlists/${listId}`)
+            .then(res => setPlaylistData(res.data))
+            .catch(err => {
+                console.error('Playlist fetch error:', err);
+                setPlaylistData(null);
+            })
+            .finally(() => setPlaylistLoading(false));
+    }, [listId]);
 
     // ══════════════════════════════════════════════════
     // Listen for Block Events 
@@ -601,18 +656,34 @@ const VideoDetail = () => {
         : DYNAMIC_FALLBACK;
 
     const handleVideoEnd = () => {
-        // Check autoplay status from localStorage
         const autoplaySaved = localStorage.getItem('utube_autoplay');
         const isAutoplayEnabled = autoplaySaved !== null ? JSON.parse(autoplaySaved) : true;
+        if (!isAutoplayEnabled) return;
 
-        if (isAutoplayEnabled && recommendations.length > 0) {
+        // ── Playlist-aware auto-play: navigate to next video in playlist ──
+        if (listId && playlistData?.videos?.length > 0) {
+            const currentIndex = playlistData.videos.findIndex(v => v.id === parseInt(id));
+            const nextVideo = currentIndex >= 0 ? playlistData.videos[currentIndex + 1] : null;
+            if (nextVideo) {
+                toast.success(`Up next: ${nextVideo.title}`, { icon: '▶️' });
+                navigate(`/video/${nextVideo.id}?list=${listId}`);
+                return;
+            }
+            // Reached end of playlist — fall through to recommendation autoplay
+        }
+
+        // ── Fallback: recommendation-based autoplay ──
+        if (recommendations.length > 0) {
             const nextVideo = recommendations[0];
-            if (nextVideo && nextVideo.id) {
+            if (nextVideo?.id) {
                 toast.success(`Autoplay: Playing ${nextVideo.title}`);
                 navigate(`/video/${nextVideo.id}`);
             }
         }
     };
+
+    // ── Derive current index in the playlist ──
+    const currentPlaylistIndex = playlistData?.videos?.findIndex(v => v.id === parseInt(id)) ?? -1;
 
 
     return (
@@ -623,9 +694,10 @@ const VideoDetail = () => {
             className="pt-24 pb-12 px-4 md:px-8 max-w-[1600px] mx-auto"
         >
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                {/* Main Content (66% Width) */}
-                <div className="lg:col-span-8">
+            {/* ── Layout: 70/30 split in playlist mode, standard 8/4 otherwise ── */}
+            <div className={`grid grid-cols-1 gap-8 ${listId ? 'xl:grid-cols-[1fr_360px]' : 'lg:grid-cols-12'}`}>
+                {/* Main Content */}
+                <div className={listId ? '' : 'lg:col-span-8'}>
                     {/* Video Player */}
                     <div className="mb-6">
                         <VideoPlayer
@@ -724,6 +796,23 @@ const VideoDetail = () => {
                             </div>
                             <button className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-5 py-2 rounded-full transition-colors glass font-bold text-sm">
                                 Share
+                            </button>
+                            {/* ── Save to Playlist Button ── */}
+                            <button
+                                onClick={() => {
+                                    const user = getCurrentUser();
+                                    if (!user) {
+                                        toast.error('Sign in to save videos');
+                                        return;
+                                    }
+                                    setIsSaveModalOpen(true);
+                                }}
+                                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-5 py-2 rounded-full transition-colors glass font-bold text-sm"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                </svg>
+                                Save
                             </button>
                         </div>
                     </div>
@@ -1040,100 +1129,212 @@ const VideoDetail = () => {
                     </div>
                 </div>
 
-                {/* Sidebar Section (33% Width) */}
-                <div className="lg:col-span-4">
-                    <h2 className="font-bold mb-6 text-lg tracking-tight flex items-center gap-2">
-                        <span className="w-1 h-6 bg-primary rounded-full" />
-                        Up Next
-                    </h2>
+                {/* ── Sidebar: Playlist or Recommendations ── */}
+                <div className={listId ? '' : 'lg:col-span-4'}>
 
-                    <div className="space-y-4">
-                        {recLoading ? (
-                            <SidebarSkeleton />
-                        ) : recommendations.length > 0 ? (
-                            recommendations.map((rec) => (
-                                rec.status === 'published' && (
-                                    <div
-                                        key={rec.id}
-                                        className="cursor-pointer group relative"
-                                        onMouseEnter={() => {
-                                            hoverRecTimeout.current = setTimeout(() => {
-                                                setHoveredRec(rec.id);
-                                            }, 1000);
-                                        }}
-                                        onMouseLeave={() => {
-                                            if (hoverRecTimeout.current) clearTimeout(hoverRecTimeout.current);
-                                            setHoveredRec(null);
-                                        }}
-                                    >
-                                        <Link to={`/video/${rec.id}`} className="flex gap-2 relative z-0 group-hover:z-10 rounded-xl pr-2 transition-colors group-hover:bg-white/5">
-                                            <div className="w-[168px] aspect-video rounded-xl overflow-hidden shrink-0 relative transition-transform duration-500 group-hover:scale-105 group-hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] bg-neutral-900/50">
-                                                <img
-                                                    src={getMediaUrl(rec.thumbnail_url) || THUMBNAIL_FALLBACK}
-                                                    alt={rec.title}
-                                                    className="w-full h-full object-cover"
-                                                    onError={(e) => {
-                                                        e.target.src = THUMBNAIL_FALLBACK;
-                                                    }}
-                                                />
-
-                                                {/* Hover Preview Overlay */}
-                                                {(hoveredRec === rec.id) && (
-                                                    <div className="absolute inset-0 z-20 pointer-events-none bg-black">
-                                                        <AnimatePresence>
-                                                            <motion.div
-                                                                initial={{ opacity: 0 }}
-                                                                animate={{ opacity: 1 }}
-                                                                exit={{ opacity: 0 }}
-                                                                transition={{ duration: 0.3 }}
-                                                                className="w-full h-full"
-                                                            >
-                                                                <HoverVideoPreview video={rec} isGridMode={true} />
-                                                            </motion.div>
-                                                        </AnimatePresence>
-                                                    </div>
-                                                )}
-
-                                                {!(hoveredRec === rec.id) && rec.duration && (
-                                                    <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] font-bold px-1 rounded z-10">
-                                                        {Math.floor(rec.duration / 60)}:{(rec.duration % 60).toString().padStart(2, '0')}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="flex-1 min-w-0 pr-2 py-1 flex flex-col justify-start">
-                                                <h3 className="font-bold text-sm leading-tight text-white line-clamp-2 mb-1 pr-4">
-                                                    {rec.title}
-                                                </h3>
-                                                <p className="text-[#AAAAAA] text-xs hover:text-white transition-colors truncate">
-                                                    {rec.author?.username}
-                                                </p>
-                                                <p className="text-[#AAAAAA] text-xs">
-                                                    {fmtViews(rec.view_count)} views • {timeAgo(rec.upload_date || rec.created_at)}
-                                                </p>
-                                            </div>
-                                            <div
-                                                className="absolute top-0 right-0 p-1 text-white hover:text-white/80 transition-colors z-20"
-                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            >
-                                                <VideoMenu
-                                                    video={rec}
-                                                    onHide={(type, id) => {
-                                                        setRecommendations(prev => prev.filter(r => r.id !== rec.id));
-                                                    }}
-                                                />
-                                            </div>
-                                        </Link>
-                                    </div>
-                                )
-                            ))
-                        ) : (
-                            <div className="py-12 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
-                                <p className="text-white/20 text-sm italic">No recommendations found</p>
+                    {/* ════════════════════════════════════════════════════
+                        PLAYLIST SIDEBAR — shown when ?list= param exists
+                    ════════════════════════════════════════════════════ */}
+                    {listId ? (
+                        <div className="bg-zinc-900/70 border border-white/8 rounded-2xl overflow-hidden flex flex-col xl:sticky xl:top-24 xl:max-h-[calc(100vh-8rem)]">
+                            {/* Header */}
+                            <div className="px-4 pt-4 pb-3 border-b border-white/8 shrink-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <svg className="w-4 h-4 text-red-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
+                                    </svg>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-red-500">Playlist</span>
+                                </div>
+                                {playlistLoading ? (
+                                    <div className="h-5 w-48 bg-white/5 rounded animate-pulse" />
+                                ) : (
+                                    <h2 className="font-bold text-sm text-white leading-tight line-clamp-1">
+                                        {playlistData?.title || 'Playlist Not Found'}
+                                    </h2>
+                                )}
+                                {playlistData && (
+                                    <p className="text-[11px] text-white/40 mt-0.5">
+                                        {currentPlaylistIndex >= 0 ? currentPlaylistIndex + 1 : '–'}
+                                        &nbsp;/&nbsp;
+                                        {playlistData.videos?.length ?? 0}
+                                    </p>
+                                )}
                             </div>
-                        )}
-                    </div>
+
+                            {/* Scrollable Video List */}
+                            <div className="overflow-y-auto flex-1 py-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.12) transparent' }}>
+                                {playlistLoading ? (
+                                    <div className="space-y-2 px-3 py-2">
+                                        {[...Array(5)].map((_, i) => (
+                                            <div key={i} className="flex gap-2 animate-pulse">
+                                                <div className="w-28 aspect-video bg-white/5 rounded-lg shrink-0" />
+                                                <div className="flex-1 space-y-1.5 py-1">
+                                                    <div className="h-2.5 bg-white/5 rounded w-full" />
+                                                    <div className="h-2 bg-white/5 rounded w-2/3" />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : playlistData?.videos?.length > 0 ? (
+                                    playlistData.videos.map((pv, idx) => {
+                                        const isActive = pv.id === parseInt(id);
+                                        return (
+                                            <Link
+                                                key={pv.id}
+                                                to={`/video/${pv.id}?list=${listId}`}
+                                                className={`flex gap-2.5 px-3 py-2 transition-all group relative ${isActive
+                                                    ? 'bg-white/10 ring-1 ring-inset ring-red-500/40'
+                                                    : 'hover:bg-white/5'
+                                                    }`}
+                                            >
+                                                {/* Index / Playing indicator */}
+                                                <div className="w-5 flex items-center justify-center shrink-0">
+                                                    {isActive ? (
+                                                        <div className="flex gap-[2px] items-end h-3.5">
+                                                            <span className="w-[3px] bg-red-500 rounded-full animate-[equalize_0.8s_ease-in-out_infinite]" style={{ height: '60%' }} />
+                                                            <span className="w-[3px] bg-red-500 rounded-full animate-[equalize_0.8s_ease-in-out_0.2s_infinite]" style={{ height: '100%' }} />
+                                                            <span className="w-[3px] bg-red-500 rounded-full animate-[equalize_0.8s_ease-in-out_0.4s_infinite]" style={{ height: '40%' }} />
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-[10px] text-white/30 font-bold">{idx + 1}</span>
+                                                    )}
+                                                </div>
+
+                                                {/* Thumbnail */}
+                                                <div className="w-28 aspect-video rounded-lg overflow-hidden shrink-0 bg-zinc-800 relative">
+                                                    <img
+                                                        src={pv.thumbnail_url || THUMBNAIL_FALLBACK}
+                                                        alt={pv.title}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => { e.target.src = THUMBNAIL_FALLBACK; }}
+                                                    />
+                                                    {pv.duration && (
+                                                        <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-white text-[9px] font-bold px-1 rounded">
+                                                            {fmtDuration(pv.duration)}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Info */}
+                                                <div className="flex-1 min-w-0 py-0.5">
+                                                    <p className={`text-xs font-bold leading-tight line-clamp-2 mb-1 ${isActive ? 'text-white' : 'text-white/80 group-hover:text-white'
+                                                        } transition-colors`}>
+                                                        {pv.title}
+                                                    </p>
+                                                    <p className="text-[10px] text-white/40 truncate">{pv.author?.username}</p>
+                                                    <p className="text-[10px] text-white/30">{fmtViews(pv.view_count)} views</p>
+                                                </div>
+                                            </Link>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="py-10 text-center">
+                                        <p className="text-white/20 text-xs">Playlist is empty</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        /* ════════════════════════════════════════════════════
+                           RECOMMENDATIONS SIDEBAR — default when no playlist
+                        ════════════════════════════════════════════════════ */
+                        <div>
+                            <h2 className="font-bold mb-6 text-lg tracking-tight flex items-center gap-2">
+                                <span className="w-1 h-6 bg-primary rounded-full" />
+                                Up Next
+                            </h2>
+
+                            <div className="space-y-4">
+                                {recLoading ? (
+                                    <SidebarSkeleton />
+                                ) : recommendations.length > 0 ? (
+                                    recommendations.map((rec) => (
+                                        rec.status === 'published' && (
+                                            <div
+                                                key={rec.id}
+                                                className="cursor-pointer group relative"
+                                                onMouseEnter={() => {
+                                                    hoverRecTimeout.current = setTimeout(() => {
+                                                        setHoveredRec(rec.id);
+                                                    }, 1000);
+                                                }}
+                                                onMouseLeave={() => {
+                                                    if (hoverRecTimeout.current) clearTimeout(hoverRecTimeout.current);
+                                                    setHoveredRec(null);
+                                                }}
+                                            >
+                                                <Link to={`/video/${rec.id}`} className="flex gap-2 relative z-0 group-hover:z-10 rounded-xl pr-2 transition-colors group-hover:bg-white/5">
+                                                    <div className="w-[168px] aspect-video rounded-xl overflow-hidden shrink-0 relative transition-transform duration-500 group-hover:scale-105 group-hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] bg-neutral-900/50">
+                                                        <img
+                                                            src={getMediaUrl(rec.thumbnail_url) || THUMBNAIL_FALLBACK}
+                                                            alt={rec.title}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => { e.target.src = THUMBNAIL_FALLBACK; }}
+                                                        />
+                                                        {(hoveredRec === rec.id) && (
+                                                            <div className="absolute inset-0 z-20 pointer-events-none bg-black">
+                                                                <AnimatePresence>
+                                                                    <motion.div
+                                                                        initial={{ opacity: 0 }}
+                                                                        animate={{ opacity: 1 }}
+                                                                        exit={{ opacity: 0 }}
+                                                                        transition={{ duration: 0.3 }}
+                                                                        className="w-full h-full"
+                                                                    >
+                                                                        <HoverVideoPreview video={rec} isGridMode={true} />
+                                                                    </motion.div>
+                                                                </AnimatePresence>
+                                                            </div>
+                                                        )}
+                                                        {!(hoveredRec === rec.id) && rec.duration && (
+                                                            <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] font-bold px-1 rounded z-10">
+                                                                {Math.floor(rec.duration / 60)}:{(rec.duration % 60).toString().padStart(2, '0')}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0 pr-2 py-1 flex flex-col justify-start">
+                                                        <h3 className="font-bold text-sm leading-tight text-white line-clamp-2 mb-1 pr-4">
+                                                            {rec.title}
+                                                        </h3>
+                                                        <p className="text-[#AAAAAA] text-xs hover:text-white transition-colors truncate">
+                                                            {rec.author?.username}
+                                                        </p>
+                                                        <p className="text-[#AAAAAA] text-xs">
+                                                            {fmtViews(rec.view_count)} views • {timeAgo(rec.upload_date || rec.created_at)}
+                                                        </p>
+                                                    </div>
+                                                    <div
+                                                        className="absolute top-0 right-0 p-1 text-white hover:text-white/80 transition-colors z-20"
+                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                    >
+                                                        <VideoMenu
+                                                            video={rec}
+                                                            onHide={(type, id) => {
+                                                                setRecommendations(prev => prev.filter(r => r.id !== rec.id));
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </Link>
+                                            </div>
+                                        )
+                                    ))
+                                ) : (
+                                    <div className="py-12 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
+                                        <p className="text-white/20 text-sm italic">No recommendations found</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
+
+            {/* ── Save to Playlist Modal ── */}
+            <SaveToPlaylistModal
+                isOpen={isSaveModalOpen}
+                onClose={() => setIsSaveModalOpen(false)}
+                videoId={parseInt(id)}
+            />
         </motion.div>
     );
 };

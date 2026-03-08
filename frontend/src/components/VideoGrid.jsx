@@ -4,6 +4,9 @@ import { Link } from 'react-router-dom';
 import HoverVideoPreview from './HoverVideoPreview';
 import { FastAverageColor } from 'fast-average-color';
 import { getMediaUrl, getAvatarUrl, getValidUrl, THUMBNAIL_FALLBACK } from '../utils/urlHelper';
+import toast from 'react-hot-toast';
+import ApiClient from '../utils/ApiClient';
+import { useWatchLater } from '../context/WatchLaterContext';
 
 // Instantiate once globally for performance
 const fac = new FastAverageColor();
@@ -111,6 +114,7 @@ export const unblockVideo = (videoId) => {
 };
 
 export const VideoMenu = ({ video, onHide }) => {
+    const { setWatchLaterOpen, fetchWatchLaterVideos } = useWatchLater();
     const [open, setOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const ref = useRef(null);
@@ -163,7 +167,54 @@ export const VideoMenu = ({ video, onHide }) => {
         setOpen(false);
     };
 
+    const handleWatchLater = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            await ApiClient.post(`/users/watch-later/${video.id}`);
+            toast.success('Added to Watch Later');
+        } catch (error) {
+            if (error.response?.status === 409) {
+                toast.success('Already in Watch Later');
+            } else {
+                toast.error('Failed to add to Watch Later');
+                return; // Don't open drawer on real failures
+            }
+        }
+        console.log('Watch Later triggered, setting state to true');
+        setWatchLaterOpen(true);
+        fetchWatchLaterVideos();
+        setOpen(false);
+    };
+
+    const handleSaveToPlaylist = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+        if (typeof onHide === 'function') {
+            onHide('saveToPlaylist', video.id); // Hack: reuse onHide to bubble up to grid
+        }
+    };
+
     const items = [
+        {
+            icon: (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            ),
+            label: 'Watch Later',
+            action: handleWatchLater,
+        },
+        {
+            icon: (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+            ),
+            label: 'Save to Playlist',
+            action: handleSaveToPlaylist,
+        },
         {
             icon: (
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -463,13 +514,17 @@ export const VideoCard = ({ video, onHide, isSessionBlocked, isListLayout = fals
     );
 };
 
-// ── VideoGrid ─────────────────────────────────────────────────────────────────
+import SaveToPlaylistModal from './SaveToPlaylistModal';
+
 const VideoGrid = ({ videos: initialVideos, loading, isListLayout = false }) => {
     // hidden will only be used directly via UI iteration now (mostly let storage handle it)
     const [blockedChannelsSet, setBlockedChannelsSet] = useState(() => new Set(getBlockedChannels()));
 
     // We maintain a list of all historically blocked videos
     const [blockedVideos, setBlockedVideos] = useState(() => getBlockedVideosData());
+
+    // State for modal
+    const [saveVideoId, setSaveVideoId] = useState(null);
 
     // We maintain a list of videos blocked only in THIS session (F5 clears this logically, but sessionStorage persists F5, so F5 keeps blur)
     // Wait, by user request: "If the user presses F5, it shouldn't reappear... remain blurred until they close the homepage. If they log out and back in, it shouldn't appear again at all."
@@ -519,6 +574,10 @@ const VideoGrid = ({ videos: initialVideos, loading, isListLayout = false }) => 
     });
 
     const handleHide = useCallback((type, id) => {
+        if (type === 'saveToPlaylist') {
+            setSaveVideoId(id);
+            return;
+        }
         if (type === 'channel') {
             // Already handled in the VideoMenu via blockChannel
         }
@@ -557,6 +616,13 @@ const VideoGrid = ({ videos: initialVideos, loading, isListLayout = false }) => 
                     />
                 ))}
             </AnimatePresence>
+            {saveVideoId && (
+                <SaveToPlaylistModal
+                    videoId={saveVideoId}
+                    isOpen={true}
+                    onClose={() => setSaveVideoId(null)}
+                />
+            )}
         </div>
     );
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import DOMPurify from 'dompurify';
 import ApiClient from '../utils/ApiClient';
@@ -10,12 +10,19 @@ import toast from 'react-hot-toast';
 
 const Channel = () => {
     const { id } = useParams();
+    const navigate = useNavigate();
     const [channel, setChannel] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isSubscribed, setIsSubscribed] = useState(false);
     const [subLoading, setSubLoading] = useState(false);
     const [subscriberCount, setSubscriberCount] = useState(0);
+
+    // ── Tab & Playlist State ──
+    const [activeTab, setActiveTab] = useState('videos');
+    const [playlists, setPlaylists] = useState([]);
+    const [playlistsLoading, setPlaylistsLoading] = useState(false);
+    const [playlistsFetched, setPlaylistsFetched] = useState(false);
 
     const currentUser = (() => {
         try {
@@ -238,35 +245,170 @@ const Channel = () => {
                     </motion.div>
                 </div>
 
-                {/* ─── Video Grid ───────────────────────────────────────────────── */}
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.4, delay: 0.2 }}
-                    className="mt-12"
-                >
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
-                            <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                            Videos
-                            <span className="text-white/30 text-base font-medium ml-1">({channel.videos?.length || 0})</span>
-                        </h2>
-                    </div>
-                    {channel.videos && channel.videos.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                            {channel.videos.map((video) => (
-                                <VideoCard key={video.id} video={video} />
-                            ))}
+                {/* ─── Tabs: Videos / Playlists ──────────────────────────────── */}
+                <div className="flex items-center gap-1 border-b border-white/8 mb-8">
+                    <button
+                        onClick={() => setActiveTab('videos')}
+                        className={`px-5 py-3 text-sm font-bold transition-all relative ${activeTab === 'videos'
+                            ? 'text-white'
+                            : 'text-white/40 hover:text-white/70'
+                            }`}
+                    >
+                        Videos
+                        {activeTab === 'videos' && (
+                            <motion.div
+                                layoutId="channelTab"
+                                className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500 rounded-full"
+                            />
+                        )}
+                    </button>
+                    <button
+                        onClick={() => {
+                            setActiveTab('playlists');
+                            // Fetch playlists on first switch
+                            if (!playlistsFetched) {
+                                setPlaylistsLoading(true);
+                                ApiClient.get(`/users/${id}/playlists`)
+                                    .then(res => setPlaylists(res.data || []))
+                                    .catch(() => setPlaylists([]))
+                                    .finally(() => {
+                                        setPlaylistsLoading(false);
+                                        setPlaylistsFetched(true);
+                                    });
+                            }
+                        }}
+                        className={`px-5 py-3 text-sm font-bold transition-all relative ${activeTab === 'playlists'
+                            ? 'text-white'
+                            : 'text-white/40 hover:text-white/70'
+                            }`}
+                    >
+                        Playlists
+                        {activeTab === 'playlists' && (
+                            <motion.div
+                                layoutId="channelTab"
+                                className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500 rounded-full"
+                            />
+                        )}
+                    </button>
+                </div>
+
+                {/* ─── Tab Content ───────────────────────────────────────────── */}
+                {activeTab === 'videos' ? (
+                    <motion.div
+                        key="videos"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
+                                <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                                Videos
+                                <span className="text-white/30 text-base font-medium ml-1">({channel.videos?.length || 0})</span>
+                            </h2>
                         </div>
-                    ) : (
-                        <div className="py-16 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
-                            <p className="text-white/40 font-medium">No videos yet</p>
-                            <p className="text-white/30 text-sm mt-1">This channel hasn't uploaded any videos.</p>
+                        {channel.videos && channel.videos.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                                {channel.videos.map((video) => (
+                                    <VideoCard key={video.id} video={video} />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="py-16 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
+                                <p className="text-white/40 font-medium">No videos yet</p>
+                                <p className="text-white/30 text-sm mt-1">This channel hasn't uploaded any videos.</p>
+                            </div>
+                        )}
+                    </motion.div>
+                ) : (
+                    <motion.div
+                        key="playlists"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
+                                <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
+                                </svg>
+                                Playlists
+                                <span className="text-white/30 text-base font-medium ml-1">({playlists.length})</span>
+                            </h2>
                         </div>
-                    )}
-                </motion.div>
+                        {playlistsLoading ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                                {[...Array(4)].map((_, i) => (
+                                    <div key={i} className="animate-pulse">
+                                        <div className="aspect-video bg-white/5 rounded-xl mb-3" />
+                                        <div className="h-4 bg-white/5 rounded w-3/4 mb-2" />
+                                        <div className="h-3 bg-white/5 rounded w-1/2" />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : playlists.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                                {playlists.map((pl) => (
+                                    <motion.div
+                                        key={pl.id}
+                                        whileHover={{ scale: 1.02 }}
+                                        className="cursor-pointer group"
+                                        onClick={() => navigate(`/playlist/${pl.id}`)}
+                                    >
+                                        {/* Thumbnail Stack Effect */}
+                                        <div className="relative aspect-video rounded-xl overflow-hidden bg-zinc-800 mb-3">
+                                            {/* Stacked cards behind */}
+                                            <div className="absolute -bottom-1 left-2 right-2 h-full bg-white/5 rounded-xl" />
+                                            <div className="absolute -bottom-2 left-4 right-4 h-full bg-white/3 rounded-xl" />
+                                            {/* Main Thumbnail */}
+                                            <div className="relative w-full h-full rounded-xl overflow-hidden">
+                                                <img
+                                                    src={pl.thumbnail_url ? getMediaUrl(pl.thumbnail_url) : THUMBNAIL_FALLBACK}
+                                                    alt={pl.title}
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                    onError={(e) => { e.target.src = THUMBNAIL_FALLBACK; }}
+                                                />
+                                                {/* Video count badge */}
+                                                <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                                        <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
+                                                    </svg>
+                                                    {pl.video_count ?? 0} videos
+                                                </div>
+                                                {/* Hover overlay */}
+                                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                    <div className="flex items-center gap-2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full">
+                                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                                            <path d="M8 5v14l11-7z" />
+                                                        </svg>
+                                                        <span className="text-xs font-bold uppercase tracking-wider">Play All</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {/* Title */}
+                                        <h3 className="font-bold text-sm text-white/90 group-hover:text-white line-clamp-2 transition-colors">
+                                            {pl.title}
+                                        </h3>
+                                        <p className="text-[11px] text-white/30 mt-1">
+                                            {pl.visibility === 'private' ? '🔒 Private' : 'Playlist'}
+                                        </p>
+                                    </motion.div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="py-16 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
+                                <svg className="w-12 h-12 mx-auto text-white/10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                </svg>
+                                <p className="text-white/40 font-medium">No playlists</p>
+                                <p className="text-white/30 text-sm mt-1">This channel hasn't created any playlists yet.</p>
+                            </div>
+                        )}
+                    </motion.div>
+                )}
             </div>
         </div>
     );

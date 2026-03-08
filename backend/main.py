@@ -31,7 +31,8 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 from backend.core.config import APP_NAME, APP_VERSION, CORS_ORIGINS, API_PREFIX, STORAGE_DIR, UPLOADS_DIR
-from backend.routes import auth_router, video_router, comment_router, like_router, trending_router, recommendation_router, chat_router
+from backend.routes import auth_router, video_router, comment_router, like_router, trending_router, recommendation_router, chat_router, playlist_router, user_playlists_router
+from backend.routes.playlist_routes import watch_later_router
 from backend.routes.channel_routes import router as channel_router
 from backend.routes.stream_routes import router as stream_router
 from backend.routes.moderator_routes import router as moderator_router
@@ -190,9 +191,11 @@ app.include_router(recommendation_router, prefix=API_PREFIX)
 app.include_router(stream_router, prefix=f"{API_PREFIX}/streams")
 app.include_router(moderator_router, prefix=API_PREFIX)
 
-# Chat routes: WS endpoint at /api/v1/ws/chat/... and HTTP at /api/v1/chat/history/...
 app.include_router(chat_router, prefix=API_PREFIX)
 app.include_router(admin_router, prefix=API_PREFIX)
+app.include_router(playlist_router, prefix=API_PREFIX)
+app.include_router(user_playlists_router, prefix=API_PREFIX)
+app.include_router(watch_later_router, prefix=API_PREFIX)
 
 # Mount static files
 # /storage for local dev files
