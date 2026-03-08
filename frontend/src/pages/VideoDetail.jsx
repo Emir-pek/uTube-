@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import ApiClient from '../utils/ApiClient';
@@ -51,6 +51,7 @@ const SidebarSkeleton = () => (
 
 const VideoDetail = () => {
     const { id } = useParams();
+    const navigate = useNavigate();
     const [video, setVideo] = useState(null);
     const [recommendations, setRecommendations] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -105,7 +106,6 @@ const VideoDetail = () => {
     // Fetch Video Data
     // ══════════════════════════════════════════════════
     useEffect(() => {
-        let pollInterval;
 
         const fetchRecommendations = async (currentVideo) => {
             try {
@@ -159,10 +159,7 @@ const VideoDetail = () => {
                 // Initial Recommendation Fetch
                 await fetchRecommendations(videoData);
 
-                // POLL Recommendations every 15s
-                pollInterval = setInterval(() => {
-                    fetchRecommendations(videoData);
-                }, 15000);
+                await fetchRecommendations(videoData);
 
             } catch (error) {
                 console.error('Failed to fetch video details:', error);
@@ -192,7 +189,6 @@ const VideoDetail = () => {
         // Reset tracking on ID change
         return () => {
             viewTracked.current = false;
-            if (pollInterval) clearInterval(pollInterval);
         };
     }, [id]);
 
@@ -604,6 +600,20 @@ const VideoDetail = () => {
         ? getMediaUrl(video.video_url)
         : DYNAMIC_FALLBACK;
 
+    const handleVideoEnd = () => {
+        // Check autoplay status from localStorage
+        const autoplaySaved = localStorage.getItem('utube_autoplay');
+        const isAutoplayEnabled = autoplaySaved !== null ? JSON.parse(autoplaySaved) : true;
+
+        if (isAutoplayEnabled && recommendations.length > 0) {
+            const nextVideo = recommendations[0];
+            if (nextVideo && nextVideo.id) {
+                toast.success(`Autoplay: Playing ${nextVideo.title}`);
+                navigate(`/video/${nextVideo.id}`);
+            }
+        }
+    };
+
 
     return (
         <motion.div
@@ -630,6 +640,7 @@ const VideoDetail = () => {
                             transcodeStatus={transcodeStatus}
                             title={video.title}
                             channelName={video.author?.username}
+                            onEnded={handleVideoEnd}
                         />
                     </div>
 
