@@ -20,6 +20,7 @@ import PlaylistView from './pages/PlaylistView';
 import WatchLaterView from './pages/WatchLaterView';
 import AdminPanel from './pages/AdminPanel';
 import Notifications from './pages/Notifications';
+import History from './pages/History';
 import { UTUBE_TOKEN } from './utils/authConstants'
 import { SidebarProvider, useSidebar } from './context/SidebarContext';
 import { WatchLaterProvider } from './context/WatchLaterContext';
@@ -103,6 +104,7 @@ const AppLayout = () => {
                     <Route path="/channel/:id" element={<Channel />} />
                     <Route path="/playlist/:id" element={<PlaylistView />} />
                     <Route path="/watch-later" element={<ProtectedRoute><WatchLaterView /></ProtectedRoute>} />
+                    <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
                     <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
                     <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
                 </Routes>

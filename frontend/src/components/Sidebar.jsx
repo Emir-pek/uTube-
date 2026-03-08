@@ -240,11 +240,10 @@ const Sidebar = () => {
     });
 
     const [subs, setSubs] = useState([]);
-    const [history, setHistory] = useState([]);
     const [liked, setLiked] = useState([]);
     const [blocked, setBlocked] = useState([]);
     const [blockedVideos, setBlockedVideos] = useState([]);
-    const [loading, setLoading] = useState({ subs: false, history: false, liked: false, blocked: false });
+    const [loading, setLoading] = useState({ subs: false, liked: false, blocked: false });
 
     // Sync user with auth events
     useEffect(() => {
@@ -265,12 +264,6 @@ const Sidebar = () => {
     // Fetch when sidebar opens
     useEffect(() => {
         if (!isSidebarOpen || !user) return;
-        setLoading(p => ({ ...p, history: true }));
-
-        ApiClient.get('/videos/history', { params: { limit: 8 } })
-            .then(r => setHistory(Array.isArray(r.data) ? r.data : r.data?.videos || []))
-            .catch(() => setHistory([]))
-            .finally(() => setLoading(p => ({ ...p, history: false })));
 
         // Fetch sub count for badge
         ApiClient.get('/feed/subscriptions', { params: { limit: 100 } })
@@ -428,24 +421,23 @@ const Sidebar = () => {
                         <Divider />
 
                         {/* ── Watch History ── */}
-                        <SectionHeader
-                            icon={
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        {user && (
+                            <Link
+                                to="/history"
+                                className="flex items-center gap-3 px-4 py-2 mx-1 rounded-xl hover:bg-white/[0.06] transition-colors group"
+                            >
+                                <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0">
+                                    <svg className="w-4 h-4 text-white/40 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-[11px] font-bold text-white/70 group-hover:text-white transition-colors">Watch History</p>
+                                </div>
+                                <svg className="w-3 h-3 text-white/0 group-hover:text-white/40 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                                 </svg>
-                            }
-                            title="Watch History"
-                            tag="Recent"
-                        />
-
-                        {!user ? (
-                            <SignInPlaceholder label="Sign in to see your watch history" />
-                        ) : loading.history ? (
-                            [...Array(3)].map((_, i) => <SkeletonVideo key={i} />)
-                        ) : history.length > 0 ? (
-                            history.map(v => <VideoItem key={v.id} video={v} />)
-                        ) : (
-                            <EmptyState label="No watch history yet" />
+                            </Link>
                         )}
 
                         <Divider />
@@ -504,39 +496,7 @@ const Sidebar = () => {
                                 </svg>
                             </Link>
                         )}
-                        <Divider />
-
-                        {/* ── Creator Tools ── */}
-                        {
-                            user && (
-                                <>
-                                    <SectionHeader
-                                        icon={<span className="text-[10px]">🛠️</span>}
-                                        title="Creator Tools"
-                                        tag="Admin"
-                                    />
-                                    <Link
-                                        to="/dashboard/moderation"
-                                        className="flex items-center gap-3 px-4 py-2 mx-1 rounded-xl hover:bg-white/[0.06] transition-colors group"
-                                    >
-                                        <div className="w-8 h-8 rounded-full bg-[#00ffcc]/10 border border-[#00ffcc]/20 flex items-center justify-center shrink-0">
-                                            <span className="text-[14px] text-[#00ffcc]/40 group-hover:text-[#00ffcc] transition-colors">🛡️</span>
-                                        </div>
-                                        <div className="flex-1">
-                                            <p className="text-[11px] font-bold text-white/70 group-hover:text-white transition-colors">Moderation Center</p>
-                                            <p className="text-[9px] text-[#00ffcc]/40 uppercase tracking-tighter">Security Matrix</p>
-                                        </div>
-                                        <svg
-                                            className="w-3 h-3 text-white/0 group-hover:text-white/40 transition-colors shrink-0"
-                                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                        >
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                                        </svg>
-                                    </Link>
-                                    <Divider />
-                                </>
-                            )
-                        }
+                        {/* ── Creator Tools Block Removed ── */}
 
                         {/* ── Blocked Videos ── */}
                         <SectionHeader

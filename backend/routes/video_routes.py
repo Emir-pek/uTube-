@@ -723,9 +723,66 @@ def get_video_history(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Fetch the current user's watch history (Placeholder)."""
-    # Currently returning empty list until WatchHistory model is implemented
-    return []
+    """Fetch the current user's watch history."""
+    from backend.database.models import WatchHistory
+    
+    history_records = db.query(WatchHistory).filter(
+        WatchHistory.user_id == current_user.id
+    ).order_by(WatchHistory.watched_at.desc()).all()
+    
+    videos = []
+    for record in history_records:
+        if record.video:
+            videos.append(record.video)
+            
+    return [
+        VideoListResponse(
+            id=video.id,
+            title=video.title,
+            thumbnail_url=get_thumbnail_url(video.thumbnail_filename),
+            view_count=video.view_count,
+            upload_date=video.upload_date.isoformat() + "Z",
+            duration=video.duration,
+            category=video.category,
+            tags=parse_tags(video.tags),
+            like_count=video.like_count,
+            status=video.status,
+            visibility=video.visibility,
+            author=AuthorResponse(
+                id=video.author.id,
+                username=video.author.username,
+                profile_image=video.author.profile_image,
+                video_count=video.author.videos.count()
+            )
+        )
+        for video in videos
+    ]
+
+@router.post("/{video_id}/history", status_code=status.HTTP_200_OK)
+def add_to_history(
+    video_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Record that a user has watched a video."""
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    
+    from backend.database.models import WatchHistory
+    
+    record = db.query(WatchHistory).filter(
+        WatchHistory.user_id == current_user.id,
+        WatchHistory.video_id == video_id
+    ).first()
+    
+    if record:
+        record.watched_at = datetime.utcnow()
+    else:
+        record = WatchHistory(user_id=current_user.id, video_id=video_id)
+        db.add(record)
+        
+    db.commit()
+    return {"status": "success"}
 
 @router.get("/liked", response_model=List[VideoListResponse])
 def get_liked_videos(

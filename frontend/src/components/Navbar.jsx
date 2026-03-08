@@ -156,7 +156,20 @@ const Navbar = () => {
         }
     };
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        const isBroadcasting = localStorage.getItem('UTUBE_IS_BROADCASTING') === 'true';
+        if (isBroadcasting) {
+            const confirmExit = window.confirm("Are you sure you want to exit? The broadcast will be closed.");
+            if (!confirmExit) return;
+
+            try {
+                await ApiClient.post('/auth/live/end-broadcast');
+            } catch (err) {
+                console.warn('Failed to end broadcast during logout', err);
+            }
+            localStorage.removeItem('UTUBE_IS_BROADCASTING');
+        }
+
         localStorage.removeItem(UTUBE_TOKEN);
         localStorage.removeItem(UTUBE_USER);
         setUser(null);

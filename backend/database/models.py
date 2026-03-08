@@ -812,3 +812,26 @@ class WatchLater(Base):
     
     def __repr__(self):
         return f"<WatchLater(user={self.user_id}, video={self.video_id})>"
+
+class WatchHistory(Base):
+    """
+    WatchHistory model for tracking videos a user has watched.
+    """
+    __tablename__ = "watch_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    video_id = Column(Integer, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False, index=True)
+    watched_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    user = relationship("User")
+    video = relationship("Video")
+    
+    # Unique constraint: a user can only have a video in watch history once
+    __table_args__ = (
+        UniqueConstraint('user_id', 'video_id', name='unique_user_watch_history'),
+    )
+    
+    def __repr__(self):
+        return f"<WatchHistory(user={self.user_id}, video={self.video_id})>"
