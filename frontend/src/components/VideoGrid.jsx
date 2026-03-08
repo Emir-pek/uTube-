@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import HoverVideoPreview from './HoverVideoPreview';
 import { FastAverageColor } from 'fast-average-color';
-import { getMediaUrl, getAvatarUrl, THUMBNAIL_FALLBACK } from '../utils/urlHelper';
+import { getMediaUrl, getAvatarUrl, getValidUrl, THUMBNAIL_FALLBACK } from '../utils/urlHelper';
 
 // Instantiate once globally for performance
 const fac = new FastAverageColor();
@@ -284,7 +284,7 @@ export const VideoCard = ({ video, onHide, isSessionBlocked, isListLayout = fals
                 {/* Heavily Blurred Background Thumbnail */}
                 <div className="absolute inset-0 z-0">
                     <img
-                        src={getMediaUrl(video.thumbnail_url) || THUMBNAIL_FALLBACK}
+                        src={getValidUrl(video.stream_thumbnail || video.thumbnail_url, THUMBNAIL_FALLBACK)}
                         alt="Blocked video"
                         className="w-full h-full object-cover blur-xl opacity-30 scale-110"
                     />
@@ -337,8 +337,8 @@ export const VideoCard = ({ video, onHide, isSessionBlocked, isListLayout = fals
                 >
                     <img
                         crossOrigin="anonymous"
-                        src={getMediaUrl(video.thumbnail_url) || THUMBNAIL_FALLBACK}
-                        alt={video.title}
+                        src={(video.stream_thumbnail || video.thumbnail_url) ? getValidUrl(video.stream_thumbnail || video.thumbnail_url) : getAvatarUrl(video.author?.profile_image || video.profile_image, video.author?.username || video.username)}
+                        alt={video.title || video.stream_title}
                         className="w-full h-full object-cover"
                         onLoad={(e) => {
                             fac.getColorAsync(e.target, { algorithm: 'dominant' })

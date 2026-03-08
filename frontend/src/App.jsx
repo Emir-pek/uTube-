@@ -12,6 +12,7 @@ import EditProfile from './pages/EditProfile'
 import LiveStudio from './pages/LiveStudio'
 import WatchPage from './pages/WatchPage';
 import Dashboard from './pages/Dashboard';
+import ModerationDashboard from './pages/ModerationDashboard';
 import BlockedVideos from './pages/BlockedVideos';
 import MyChannel from './pages/MyChannel';
 import Channel from './pages/Channel';
@@ -91,6 +92,7 @@ const AppLayout = () => {
                     <Route path="/edit-profile" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
                     <Route path="/live" element={<ProtectedRoute><LiveStudio /></ProtectedRoute>} />
                     <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                    <Route path="/dashboard/moderation" element={<ProtectedRoute><ModerationDashboard /></ProtectedRoute>} />
                     <Route path="/blocked" element={<ProtectedRoute><BlockedVideos /></ProtectedRoute>} />
                     <Route path="/my-channel" element={<ProtectedRoute><MyChannel /></ProtectedRoute>} />
                     <Route path="/channel/:id" element={<Channel />} />

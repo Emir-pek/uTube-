@@ -488,6 +488,36 @@ const Sidebar = () => {
 
                         <Divider />
 
+                        {/* ── Creator Tools ── */}
+                        {user && (
+                            <>
+                                <SectionHeader 
+                                    icon={<span className="text-[10px]">🛠️</span>} 
+                                    title="Creator Tools" 
+                                    tag="Admin" 
+                                />
+                                <Link
+                                    to="/dashboard/moderation"
+                                    className="flex items-center gap-3 px-4 py-2 mx-1 rounded-xl hover:bg-white/[0.06] transition-colors group"
+                                >
+                                    <div className="w-8 h-8 rounded-full bg-[#00ffcc]/10 border border-[#00ffcc]/20 flex items-center justify-center shrink-0">
+                                        <span className="text-[14px] text-[#00ffcc]/40 group-hover:text-[#00ffcc] transition-colors">🛡️</span>
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-[11px] font-bold text-white/70 group-hover:text-white transition-colors">Moderation Center</p>
+                                        <p className="text-[9px] text-[#00ffcc]/40 uppercase tracking-tighter">Security Matrix</p>
+                                    </div>
+                                    <svg
+                                        className="w-3 h-3 text-white/0 group-hover:text-white/40 transition-colors shrink-0"
+                                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </Link>
+                                <Divider />
+                            </>
+                        )}
+
                         {/* ── Blocked Videos ── */}
                         <SectionHeader
                             icon={

@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ApiClient from '../utils/ApiClient';
 import { FLV_BASE_URL, WS_BASE_URL, RTMP_URL, getValidUrl, THUMBNAIL_FALLBACK } from '../utils/urlHelper';
 import { UTUBE_TOKEN } from '../utils/authConstants';
 import { toast } from 'react-hot-toast';
-import flvjs from 'flv.js';
+import FlvPlayer from '../components/FlvPlayer';
 import BackgroundGalleryModal from '../components/BackgroundGalleryModal';
+import BanNotification from '../components/BanNotification';
+import BanReasonDialog from '../components/BanReasonDialog';
+import CustomWarningDialog from '../components/CustomWarningDialog';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LiveStudio — Creator Control Room  ▸  NEON-RGB CYBERPUNK EDITION
@@ -60,17 +63,20 @@ const LiveStudio = () => {
                     stream = s;
                     if (testVideoRef.current) testVideoRef.current.srcObject = s;
                 })
-                .catch(e => console.error("Camera test failed", e));
+                .catch(e => console.error("Camera test failed:", e.name, e.message));
         }
         return () => {
             if (stream) stream.getTracks().forEach(t => t.stop());
         };
     }, [showTestCamera, videoInputId]);
 
-    const [peakViewers, setPeakViewers] = useState(0);
-    const [totalWatchTime, setTotalWatchTime] = useState(0);
-    const [newSubscribersCount, setNewSubscribersCount] = useState(0);
-    const [messageRate, setMessageRate] = useState(0);
+    const [broadcastMetrics, setBroadcastMetrics] = useState({
+        viewerCount: 0,
+        peakViewers: 0,
+        newSubscribersCount: 0,
+        messageRate: 0,
+        watchTime: 0
+    });
     const [showKey, setShowKey] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const [streamKey, setStreamKey] = useState('');
@@ -78,6 +84,7 @@ const LiveStudio = () => {
     const [showStopModal, setShowStopModal] = useState(false);
     const [showRegenerateModal, setShowRegenerateModal] = useState(false);
     const [isLive, setIsLive] = useState(false);
+    const [isStaging, setIsStaging] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // ── Poll State ────────────────────────────────────────────────────────
@@ -136,6 +143,11 @@ const LiveStudio = () => {
     const [wsStatus, setWsStatus] = useState('disconnected');
     const [slowModeEnabled, setSlowModeEnabled] = useState(false);
 
+    // Inline Moderation States
+    const [selectedMessage, setSelectedMessage] = useState(null);
+    const [showActionModal, setShowActionModal] = useState(false);
+    const [currentUserTier, setCurrentUserTier] = useState(5); // Creator is Tier 5
+
     // ── Hype Meter ────────────────────────────────────────────────────────
     const [hypeLevel, setHypeLevel] = useState(0);
     const messageTimestampsRef = useRef([]);
@@ -143,9 +155,11 @@ const LiveStudio = () => {
     const [activePoll, setActivePoll] = useState(null);
     const [pollTimeLeft, setPollTimeLeft] = useState(0);
     const [pollPhase, setPollPhase] = useState('none'); // 'none' | 'active' | 'results'
+    const [streamThumbnail, setStreamThumbnail] = useState(null);
 
-    // ── BRB Shield ─────────────────────────────────────────────────────
-    const [brbEnabled, setBrbEnabled] = useState(false);
+    const [bgHasError, setBgHasError] = useState(false);
+
+    useEffect(() => { setBgHasError(false); }, [activeBgUrl]);
 
     // ── Activity Feed (Real-time) ────────────────────────────────────────
     const [activities, setActivities] = useState([]);
@@ -155,9 +169,45 @@ const LiveStudio = () => {
     const [viewerCount, setViewerCount] = useState(0);
     const [showViewerList, setShowViewerList] = useState(false);
 
+    // ── Moderation System ────────────────────────────────────────────────
+    const [showModerationPanel, setShowModerationPanel] = useState(false);
+    const [moderators, setModerators] = useState([]);
+    const [bannedUsers, setBannedUsers] = useState([]);
+    const [isRefreshingModData, setIsRefreshingModData] = useState(false);
+    
+    // Detailed Moderation States
+    const [showBanReasonModal, setShowBanReasonModal] = useState(false);
+    const [pendingModAction, setPendingModAction] = useState({ action: '', duration: null, targetUser: null });
+    const [currentBanInfo, setCurrentBanInfo] = useState(null);
+    const [showBanNotification, setShowBanNotification] = useState(false);
+    const [isBannedLocal, setIsBannedLocal] = useState(false);
+    const [timeoutExpiryLocal, setTimeoutExpiryLocal] = useState(null);
+
+    const fetchModerationData = useCallback(async () => {
+        if (!currentUser?.id) return;
+        setIsRefreshingModData(true);
+        try {
+            const [modsRes, bansRes] = await Promise.all([
+                ApiClient.get(`/api/permissions/channel/${currentUser.id}`),
+                ApiClient.get(`/api/moderation/bans/active`)
+            ]);
+            setModerators(modsRes.data || []);
+            setBannedUsers(bansRes.data || []);
+        } catch (error) {
+            console.error("[Moderation] Failed to fetch data:", error);
+        } finally {
+            setIsRefreshingModData(false);
+        }
+    }, [currentUser?.id]);
+
+    useEffect(() => {
+        if (studioMode === 'broadcast' || showModerationPanel) {
+            fetchModerationData();
+        }
+    }, [studioMode, showModerationPanel, fetchModerationData]);
+
     // ── Refs ─────────────────────────────────────────────────────────────
-    const videoRef = useRef(null);
-    const flvPlayerRef = useRef(null);
+
     const chatEndRef = useRef(null);
     const wsRef = useRef(null);
     const reconnectTimerRef = useRef(null);
@@ -168,6 +218,21 @@ const LiveStudio = () => {
     const previewRetryCount = useRef(0);
     const rtmpUrl = RTMP_URL;
 
+    // ── WebSocket Batching Refs ──
+    const chatBatchQueueRef = useRef([]);
+    const chatBatchTimeoutRef = useRef(null);
+
+    const flushChatBatch = () => {
+        if (chatBatchQueueRef.current.length === 0) return;
+        const newBatch = [...chatBatchQueueRef.current];
+        chatBatchQueueRef.current = [];
+        setChatMessages(prev => {
+            const combined = [...prev, ...newBatch];
+            return combined.length > 200 ? combined.slice(-200) : combined;
+        });
+        chatBatchTimeoutRef.current = null;
+    };
+
     // ── Auto-switch mode when stream goes live/offline ────────────────────
     useEffect(() => {
         if (isLive) {
@@ -176,8 +241,18 @@ const LiveStudio = () => {
             // Stream ended — return to setup mode and clear signal
             setStudioMode('setup');
             setSignalDetected(false);
+            setShowModerationPanel(false);
         }
     }, [isLive]);
+
+    // ── User Badge Component ─────────────────────────────────────────────
+    const UserBadge = ({ tier, isCreator }) => {
+        if (isCreator || tier === 5) return <span className="text-[8px] bg-red-500/20 text-red-500 border border-red-500/40 px-1 rounded font-jet uppercase tracking-wider" style={{ textShadow: '0 0 6px #ef444460' }}>Broadcaster</span>;
+        if (tier === 4) return <span className="text-[8px] bg-purple-500/20 text-purple-400 border border-purple-500/40 px-1 rounded font-jet uppercase tracking-wider">Admin</span>;
+        if (tier === 3) return <span className="text-[8px] bg-blue-500/20 text-blue-400 border border-blue-500/40 px-1 rounded font-jet uppercase tracking-wider">Sr Mod</span>;
+        if (tier === 2) return <span className="text-[8px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-1 rounded font-jet uppercase tracking-wider">Mod</span>;
+        return null;
+    };
 
     // ── Equipment checklist detection (Real Hardware Sync) ────────────────
     useEffect(() => {
@@ -189,11 +264,13 @@ const LiveStudio = () => {
                 // Instantly stop the tracks so we don't hold the camera light on
                 stream.getTracks().forEach(track => track.stop());
             } catch (err) {
-                // Determine what failed
-                const errStr = err.toString().toLowerCase();
+                // Log specific DOMException details for diagnosis
+                console.error('Equipment Check Error:', err.name, '-', err.message);
+                const errName = (err.name || '').toLowerCase();
+                const errMsg = (err.message || '').toLowerCase();
                 setEquipment({
-                    mic: !errStr.includes('audio') && !errStr.includes('microphone'),
-                    camera: !errStr.includes('video') && !errStr.includes('camera')
+                    mic: !errName.includes('notfound') || (!errMsg.includes('audio') && !errMsg.includes('microphone')),
+                    camera: !errName.includes('notfound') || (!errMsg.includes('video') && !errMsg.includes('camera'))
                 });
             }
         };
@@ -211,115 +288,79 @@ const LiveStudio = () => {
     useEffect(() => {
         const rateInterval = setInterval(() => {
             const now = Date.now();
-            const recentMessages = messageTimestampsRef.current.filter(t => now - t < 60000);
-            setMessageRate(recentMessages.length);
-        }, 3000); // ✅ Reduced from 2s to 3s
+            messageTimestampsRef.current = messageTimestampsRef.current.filter(t => now - t < 60000);
+            setBroadcastMetrics(p => ({ ...p, messageRate: messageTimestampsRef.current.length }));
+        }, 5000); // ✅ Phase 1: 3s -> 5s
         return () => clearInterval(rateInterval);
     }, []);
 
     useEffect(() => {
-        if (viewerCount > peakViewers) setPeakViewers(viewerCount);
-    }, [viewerCount, peakViewers]);
-
-    useEffect(() => {
-        let wtInterval;
-        if (isLive) {
-            wtInterval = setInterval(() => setTotalWatchTime(p => p + viewerCount), 1000);
+        if (broadcastMetrics.viewerCount > broadcastMetrics.peakViewers) {
+            setBroadcastMetrics(p => ({ ...p, peakViewers: p.viewerCount }));
         }
-        return () => clearInterval(wtInterval);
-    }, [isLive, viewerCount]);
+    }, [broadcastMetrics.viewerCount, broadcastMetrics.peakViewers]);
 
-    const formatWatchTime = (sec) => {
-        return (sec / 3600).toFixed(1) + 'h';
-    };
+    const watchTimeStr = useMemo(() => (broadcastMetrics.watchTime / 3600).toFixed(1) + 'h', [broadcastMetrics.watchTime]);
 
-    const isCameraReady = equipment.camera || videoDevices.length > 0;
-    const isMicReady = equipment.mic || audioDevices.length > 0;
-    const canStartBroadcast = streamTitle.trim().length > 0 && !!streamCategory && streamDescription.trim().length > 0 && isCameraReady && isMicReady;
+    const isCameraReady = useMemo(() => equipment.camera || videoDevices.length > 0, [equipment.camera, videoDevices.length]);
+    const isMicReady = useMemo(() => equipment.mic || audioDevices.length > 0, [equipment.mic, audioDevices.length]);
+    
+    const canStartBroadcast = useMemo(() => 
+        streamTitle.trim().length > 0 && 
+        !!streamCategory && 
+        streamDescription.trim().length > 0 && 
+        isCameraReady && 
+        isMicReady, 
+    [streamTitle, streamCategory, streamDescription, isCameraReady, isMicReady]);
 
     // ════════════════════════════════════════════════════════════════════════
     // FLV PLAYER & EFFECTS
     // ════════════════════════════════════════════════════════════════════════
 
 
-    const initPlayer = () => {
-        if (!videoRef.current || !currentUser?.username) return;
-        setIsConnecting(true);
 
-        if (flvPlayerRef.current) {
-            try { flvPlayerRef.current.pause(); flvPlayerRef.current.unload(); flvPlayerRef.current.detachMediaElement(); flvPlayerRef.current.destroy(); } catch (e) { }
-            flvPlayerRef.current = null;
-        }
 
-        const streamUrl = `${FLV_BASE}/live/${streamKey}.flv`;
-        const player = flvjs.createPlayer(
-            { type: 'flv', isLive: true, hasAudio: true, hasVideo: true, url: streamUrl, cors: true },
-            { enableWorker: false, enableStashBuffer: false, stashInitialSize: 128 }
-        );
-
-        player.attachMediaElement(videoRef.current);
-        player.load();
-
-        player.play().then(() => {
+    const handleStartBroadcast = useCallback(async () => {
+        try {
+            const payload = { 
+                title: streamTitle, 
+                stream_thumbnail: streamThumbnail || null 
+            };
+            await ApiClient.post('/auth/live/start-broadcast', payload);
+            setIsStaging(false);
             setIsLive(true);
-            setIsConnecting(false);
-            previewRetryCount.current = 0;
-            setBackendOnline(true);
-            // Strict Wipe on Stream Start
-            setChatMessages([]);
-            setActivePoll(null);
-            setShowPollModal(false);
-        }).catch(() => {
-            setIsConnecting(false);
-            if (previewRetryCount.current < MAX_PREVIEW_RETRIES) {
-                previewRetryCount.current += 1;
-                toast(`Retrying preview... (${previewRetryCount.current}/${MAX_PREVIEW_RETRIES})`, { icon: '🔄', style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } });
-                retryTimerRef.current = setTimeout(initPlayer, 3000);
-            } else {
-                toast.error('Could not connect to OBS. Make sure your stream is running.');
-                previewRetryCount.current = 0;
-            }
-        });
-
-        // ── REAL BITRATE TRACKING ──
-        player.on(flvjs.Events.STATISTICS_INFO, (stats) => {
-            setStreamStats({
-                bitrate: Math.round((stats.speed || 0) / 1024), // Convert bytes/s to kbps
-                fps: Math.round(stats.currentFps || 0),
-                resolution: `${stats.videoWidth || 0}x${stats.videoHeight || 0}`
+            toast.success("You are now LIVE to the public!", {
+                icon: '🔥',
+                style: { background: '#ef4444', color: '#fff', border: '1px solid rgba(239,68,68,0.5)' }
             });
-        });
-
-        player.on(flvjs.Events.ERROR, () => {
-            if (flvPlayerRef.current) { try { flvPlayerRef.current.unload(); flvPlayerRef.current.detachMediaElement(); flvPlayerRef.current.destroy(); } catch (e) { } flvPlayerRef.current = null; }
-            setIsLive(false); setIsConnecting(false);
-        });
-
-        flvPlayerRef.current = player;
-    };
-
-    const handleStopBroadcast = () => {
-        if (flvPlayerRef.current) {
-            try {
-                flvPlayerRef.current.pause();
-                flvPlayerRef.current.unload();
-                flvPlayerRef.current.detachMediaElement();
-                flvPlayerRef.current.destroy();
-            } catch (err) { }
-            flvPlayerRef.current = null;
+        } catch (error) {
+            toast.error(error.response?.data?.detail || "Failed to start broadcast");
         }
-        setIsLive(false);
-        setStudioMode('setup');
-        setShowStopModal(false);
+    }, [streamTitle, streamDescription, streamCategory, streamThumbnail]); // Include new local state
 
-        // CRITICAL UI REQ: Clear chat session history when broadcast ends
-        setChatMessages([]);
-        setActivePoll(null); // ERADICATE GHOST POLLS
-        setPollPhase('none');
-        setShowPollModal(false); // NO STREAM NO POLLS
+    const handleStopBroadcast = useCallback(async () => {
+        try {
+            await ApiClient.post('/auth/live/end-broadcast');
+            setIsLive(false);
+            setStudioMode('setup');
+            setShowStopModal(false);
+
+            // CRITICAL UI REQ: Clear chat session history when broadcast ends
+            setChatMessages([]);
+            setActivePoll(null); // ERADICATE GHOST POLLS
+            setPollPhase('none');
+            setShowPollModal(false); // NO STREAM NO POLLS
+            
+            toast.success("Broadcast ended successfully.", {
+                style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }
+            });
+        } catch (error) {
+            toast.error("Failed to end broadcast. Please try again.");
+            console.error(error);
+        }
 
         toast.success("Broadcast stopped safely");
-    };
+    }, []);
 
     // ════════════════════════════════════════════════════════════════════════
     // EFFECTS (all business logic unchanged)
@@ -354,41 +395,101 @@ const LiveStudio = () => {
             ws.onmessage = (event) => {
                 try {
                     const parsedMessage = JSON.parse(event.data);
+                    if (parsedMessage.type === 'POLL_VOTE') console.log('[POLL_GHOST] Observed Vote:', parsedMessage);
                     switch (parsedMessage.type) {
-                        case 'chat': case 'system':
-                            // ✅ OPTIMIZED: Functional update prevents re-renders
+                        case 'chat':
+                            // ✅ Phase 2: Batching chat messages
+                            chatBatchQueueRef.current.push(parsedMessage);
+                            messageTimestampsRef.current.push(Date.now());
+                            
+                            if (chatBatchQueueRef.current.length >= 10) {
+                                if (chatBatchTimeoutRef.current) clearTimeout(chatBatchTimeoutRef.current);
+                                flushChatBatch();
+                            } else if (!chatBatchTimeoutRef.current) {
+                                chatBatchTimeoutRef.current = setTimeout(flushChatBatch, 100);
+                            }
+                            break;
+                        case 'system':
+                            // System messages bypass batching for visibility
                             setChatMessages(prev => {
                                 const newMessages = [...prev, parsedMessage];
                                 return newMessages.length > 200 ? newMessages.slice(-200) : newMessages;
                             });
-                            if (parsedMessage.type === 'chat') messageTimestampsRef.current.push(Date.now());
                             break;
                         case 'activity':
                             setActivities(prev => {
                                 const newActivities = [parsedMessage, ...prev];
                                 return newActivities.length > 50 ? newActivities.slice(0, 50) : newActivities;
                             });
-                            if (parsedMessage.activity_type === 'subscribe') setNewSubscribersCount(p => p + 1);
+                            if (parsedMessage.activity_type === 'subscribe') setBroadcastMetrics(p => ({ ...p, newSubscribersCount: p.newSubscribersCount + 1 }));
                             break;
-                        case 'viewer_list': setViewers(parsedMessage.viewers || []); setViewerCount(parsedMessage.count || 0); break;
+                        case 'viewer_list': setViewers(parsedMessage.viewers || []); setBroadcastMetrics(p => ({ ...p, viewerCount: parsedMessage.count || 0 })); break;
                         case 'slow_mode': setSlowModeEnabled(parsedMessage.enabled); break;
-                        case 'message_deleted':
+                        case 'message.deleted':
                             setChatMessages(prev => prev.filter(m => m.id !== parsedMessage.msg_id));
                             break;
+                        case 'user.banned':
+                            if (parsedMessage.username) {
+                                setChatMessages(prev => prev.filter(m => m.user !== parsedMessage.username));
+                            }
+                            if (parsedMessage.username === currentUser?.username) {
+                                setIsBannedLocal(true);
+                                setTimeoutExpiryLocal(null);
+                                setCurrentBanInfo({
+                                    reason: parsedMessage.reason,
+                                    moderator: parsedMessage.moderator,
+                                    expires_at: parsedMessage.expires_at
+                                });
+                                setShowBanNotification(true);
+                                setStudioMode('setup');
+                            }
+                            break;
+                        case 'user.timedout':
+                            if (parsedMessage.username === currentUser?.username) {
+                                setIsBannedLocal(true);
+                                setTimeoutExpiryLocal(parsedMessage.expires_at);
+                                setCurrentBanInfo({
+                                    reason: parsedMessage.reason,
+                                    moderator: parsedMessage.moderator,
+                                    expires_at: parsedMessage.expires_at,
+                                    duration: parsedMessage.duration
+                                });
+                                setShowBanNotification(true);
+                            }
+                            break;
                         case 'POLL_START':
-                            setActivePoll(parsedMessage.data);
+                            setActivePoll({
+                                ...parsedMessage.data,
+                                total: parsedMessage.data.options.reduce((sum, opt) => sum + (opt.votes || 0), 0)
+                            });
                             setPollTimeLeft(parsedMessage.data.duration);
                             setPollPhase('active');
                             break;
+                        case 'poll_update':
+                            // Hydrate state from server join/reconnect message
+                            if (parsedMessage.options) {
+                                setActivePoll({
+                                    ...parsedMessage,
+                                    total: parsedMessage.options.reduce((sum, opt) => sum + (opt.votes || 0), 0)
+                                });
+                                setPollPhase('active');
+                                // Note: manager.py doesn't track time_left yet, so we reset to duration
+                                setPollTimeLeft(parsedMessage.duration || 60);
+                            }
+                            break;
                         case 'POLL_VOTE':
-                            // Update vote counts
+                            // Update vote counts with Strict Immutability (increment options[i] and total)
                             setActivePoll(prev => {
-                                if (!prev) return prev;
-                                const newOptions = [...prev.options];
-                                if (parsedMessage.optionIndex !== undefined && newOptions[parsedMessage.optionIndex]) {
-                                    newOptions[parsedMessage.optionIndex].votes = (newOptions[parsedMessage.optionIndex].votes || 0) + 1;
-                                }
-                                return { ...prev, options: newOptions };
+                                if (!prev || parsedMessage.optionIndex === undefined) return prev;
+                                return {
+                                    ...prev,
+                                    options: prev.options.map((opt, i) =>
+                                        i === parsedMessage.optionIndex
+                                            ? { ...opt, votes: (opt.votes || 0) + 1 }
+                                            : opt
+                                    ),
+                                    total: (prev.total || 0) + 1
+                                };
                             });
                             break;
                         case 'POLL_END':
@@ -396,13 +497,19 @@ const LiveStudio = () => {
                             setPollPhase('none');
                             setPollTimeLeft(0);
                             break;
-                        case 'brb': setBrbEnabled(parsedMessage.enabled); break;
                         case 'status_update':
-                            // Sync local isLive state with backend webhook truth
+                            // Sync local isLive and isStaging state with backend webhook truth
                             const newLiveStatus = !!parsedMessage.is_live;
+                            const newStagingStatus = !!parsedMessage.is_staging;
                             setIsLive(newLiveStatus);
-                            if (!newLiveStatus) {
-                                // If webhook says we are done, perform cleanup
+                            setIsStaging(newStagingStatus);
+                            
+                            if (newStagingStatus && !newLiveStatus) {
+                                setStudioMode('setup'); // CRITICAL FIX: Staging stays on Setup screen
+                                setSignalDetected(true);
+                                toast.success("OBS Connected! Ready to go live.", { icon: '📡' });
+                            } else if (!newLiveStatus && !newStagingStatus) {
+                                // If webhook says we are entirely offline
                                 setChatMessages([]);
                                 setActivePoll(null);
                                 setPollPhase('none');
@@ -431,7 +538,8 @@ const LiveStudio = () => {
             };
 
             ws.onerror = (error) => {
-                console.error("WebSocket error:", error);
+                console.error('WebSocket Error — URL:', wsUrl, '| Event:', error);
+                console.error('WebSocket readyState at error:', ws.readyState, '(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
                 setWsStatus('disconnected');
             };
             wsRef.current = ws;
@@ -477,40 +585,19 @@ const LiveStudio = () => {
     }, [activePoll, pollPhase]);
 
     useEffect(() => {
-        let heartbeatInterval;
-        let lastTime = videoRef.current?.currentTime !== undefined ? videoRef.current.currentTime : -1;
-        if (isLive) {
-            heartbeatInterval = setInterval(() => {
-                if (document.hidden || !videoRef.current) return;
-                const currentTime = videoRef.current.currentTime;
-                if (lastTime !== -1 && Math.abs(currentTime - lastTime) < 0.1) {
-                    if (flvPlayerRef.current) { try { flvPlayerRef.current.unload(); flvPlayerRef.current.detachMediaElement(); flvPlayerRef.current.destroy(); } catch (e) { } flvPlayerRef.current = null; }
-                    setIsLive(false); setIsConnecting(false);
-                    setChatMessages([]); // GLOBAL CHAT WIPE
-                    setActivePoll(null); // ERADICATE GHOST POLLS
-                    setPollPhase('none');
-                    toast.error('Stream connection lost (OBS stopped).');
-                }
-                lastTime = currentTime;
-            }, 3000);
-        }
-        return () => clearInterval(heartbeatInterval);
-    }, [isLive]);
-
-    useEffect(() => {
         let uptimeInterval;
-        if (isLive) { uptimeInterval = setInterval(() => setUptime(prev => prev + 1), 1000); } else { setUptime(0); }
+        if (isLive) { uptimeInterval = setInterval(() => setUptime(prev => prev + 2), 2000); } else { setUptime(0); } // ✅ Phase 1: 1s -> 2s
         return () => clearInterval(uptimeInterval);
     }, [isLive]);
 
-    const formatUptime = (seconds) => {
-        const hrs = Math.floor(seconds / 3600).toString().padStart(2, '0');
-        const mins = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-        const secs = (seconds % 60).toString().padStart(2, '0');
+    const uptimeStr = useMemo(() => {
+        const hrs = Math.floor(uptime / 3600).toString().padStart(2, '0');
+        const mins = Math.floor((uptime % 3600) / 60).toString().padStart(2, '0');
+        const secs = (uptime % 60).toString().padStart(2, '0');
         return `${hrs}:${mins}:${secs}`;
-    };
+    }, [uptime]);
 
-    // ── Poll Timer Countdown ──────────────────────────────────────────────
+    // Unified Poll Timer Countdown (Cleanup duplicate)
     useEffect(() => {
         let timer;
         if (activePoll && pollPhase === 'active') {
@@ -528,12 +615,12 @@ const LiveStudio = () => {
         return () => clearInterval(timer);
     }, [activePoll, pollPhase]);
 
-    const formatPollTime = (seconds) => {
-        if (isNaN(seconds) || seconds == null) return '00:00';
-        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-        const s = (seconds % 60).toString().padStart(2, '0');
+    const pollTimeStr = useMemo(() => {
+        if (isNaN(pollTimeLeft) || pollTimeLeft == null) return '00:00';
+        const m = Math.floor(pollTimeLeft / 60).toString().padStart(2, '0');
+        const s = (pollTimeLeft % 60).toString().padStart(2, '0');
         return `${m}:${s}`;
-    };
+    }, [pollTimeLeft]);
 
     const toggleMicTest = async () => {
         if (isMicTestRunning) {
@@ -574,6 +661,7 @@ const LiveStudio = () => {
                 microphoneRef.current = source;
 
                 const gainNode = audioCtx.createGain();
+                const inputSensitivity = micSensitivity / 100; // Convert % state → gain multiplier
                 gainNode.gain.value = inputSensitivity;
                 gainNodeRef.current = gainNode;
 
@@ -594,7 +682,8 @@ const LiveStudio = () => {
                 updateVolume();
                 setIsMicTestRunning(true);
             } catch (err) {
-                toast.error('Could not access microphone.');
+                console.error('Mic Access Error:', err.name, '-', err.message);
+                toast.error(`Microphone error: ${err.name} - ${err.message}. Please check browser permissions.`);
             }
         }
     };
@@ -624,7 +713,7 @@ const LiveStudio = () => {
         }
     }, [chatMessages]);
 
-    const handleChatScroll = (e) => {
+    const handleChatScroll = useCallback((e) => {
         const { scrollTop, scrollHeight, clientHeight } = e.target;
         const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
 
@@ -634,7 +723,7 @@ const LiveStudio = () => {
         } else {
             setIsUserScrolling(true);
         }
-    };
+    }, []);
 
     useEffect(() => {
         let statsInterval;
@@ -644,15 +733,14 @@ const LiveStudio = () => {
                     const res = await ApiClient.get(`/streams/${encodeURIComponent(currentUser.username)}/stats`);
                     const data = res.data;
 
-                    setViewerCount(data.current_viewers || 0);
-                    setPeakViewers(currentPeak => Math.max(currentPeak, data.current_viewers || 0));
-                    setMessageRate(data.chat_rate || 0);
-                    setNewSubscribersCount(data.new_subs || 0);
-
-                    // Watch time artificially increases per user.
-                    // If we had absolute actual users across the entire video, 
-                    // the backend would compile `sum(user_session_duration)`
-                    setTotalWatchTime(prev => prev + ((data.current_viewers || 0) * 10));
+                    setBroadcastMetrics(p => ({
+                        ...p,
+                        viewerCount: data.current_viewers || 0,
+                        peakViewers: Math.max(p.peakViewers, data.current_viewers || 0),
+                        messageRate: data.chat_rate || 0,
+                        newSubscribersCount: data.new_subs || 0,
+                        watchTime: p.watchTime + ((data.current_viewers || 0) * 15) // Phase 1: Adjusted for 15s interval
+                    }));
                 } catch (error) {
                     console.error("Dashboard Stats Error:", error);
                 }
@@ -660,13 +748,11 @@ const LiveStudio = () => {
 
             // Intial fetch immediately
             fetchDashboardStats();
-            // Strict 10-second polling to save DB load
-            statsInterval = setInterval(fetchDashboardStats, 10000);
+            // ✅ Phase 1: 10s -> 15s to save DB load
+            statsInterval = setInterval(fetchDashboardStats, 15000);
         } else {
             // Drop to zero immediately if not broadcasting
-            setViewerCount(0);
-            setMessageRate(0);
-            setNewSubscribersCount(0);
+            setBroadcastMetrics(p => ({ ...p, viewerCount: 0, messageRate: 0, newSubscribersCount: 0 }));
         }
         return () => clearInterval(statsInterval);
     }, [studioMode, isLive, currentUser?.username]);
@@ -678,7 +764,7 @@ const LiveStudio = () => {
             const now = Date.now();
             messageTimestampsRef.current = messageTimestampsRef.current.filter(t => now - t < 10000);
             setHypeLevel(Math.round((messageTimestampsRef.current.length / 10) * 10) / 10);
-        }, 1000);
+        }, 3000); // ✅ Phase 1: 1s -> 3s
         return () => clearInterval(hypeInterval);
     }, []);
 
@@ -698,6 +784,7 @@ const LiveStudio = () => {
 
                 const finalUser = { ...userResponse.data, stream_thumbnail: mergedThumb };
                 setCurrentUser(finalUser);
+                setStreamThumbnail(mergedThumb);
                 localStorage.setItem('user', JSON.stringify(finalUser));
 
                 if (userResponse.data.stream_title) setStreamTitle(userResponse.data.stream_title);
@@ -715,8 +802,10 @@ const LiveStudio = () => {
                     setIsLive(true);
                     setStudioMode('broadcast');
                     setSignalDetected(true);
-                    // Auto-init FLV player after a short delay to let refs mount
-                    setTimeout(() => initPlayer(), 500);
+                } else if (userResponse.data.is_staging) {
+                    setIsStaging(true);
+                    setStudioMode('setup'); // CRITICAL FIX: Staging must remain on the Setup screen
+                    setSignalDetected(true);
                 }
 
                 setBackendOnline(true);
@@ -729,7 +818,6 @@ const LiveStudio = () => {
         fetchInitialData();
         return () => {
             clearTimeout(retryTimerRef.current);
-            if (flvPlayerRef.current) { try { flvPlayerRef.current.pause(); flvPlayerRef.current.unload(); flvPlayerRef.current.detachMediaElement(); flvPlayerRef.current.destroy(); } catch (err) { } flvPlayerRef.current = null; }
         };
     }, []);
 
@@ -774,6 +862,7 @@ const LiveStudio = () => {
                 toast.error("Upload succeeded but no URL returned.");
                 return;
             }
+            setStreamThumbnail(newPath); // EXPLICIT LOCAL STATE UPDATE FOR PAYLOAD
             setCurrentUser(prev => {
                 const updated = { ...prev, stream_thumbnail: newPath };
                 try {
@@ -818,34 +907,61 @@ const LiveStudio = () => {
 
     // (Removed corrupted duplicate and nested WebSocket logic)
 
-    const handleUpdateMetadata = async () => {
+    const handleUpdateMetadata = useCallback(async () => {
         setIsSubmitting(true);
         try { await ApiClient.put('/auth/live-metadata', { title: streamTitle, category: streamCategory }); toast.success("Metadata updated!", { icon: '📝', style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } }); }
         catch { toast.error("Failed to update metadata."); }
         finally { setIsSubmitting(false); }
-    };
+    }, [streamTitle, streamCategory]);
 
-    const handleRegenerateKey = async () => {
+    const handleRegenerateKey = useCallback(async () => {
         setIsLoadingKey(true);
-        try { const response = await ApiClient.post('/auth/stream-key/reset'); setStreamKey(response.data.stream_key); setShowKey(false); setShowRegenerateModal(false); toast.success("Stream key regenerated!", { icon: '🔄', style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } }); }
+        try { const response = await ApiClient.post('/stream-key/reset'); setStreamKey(response.data.stream_key); setShowKey(false); setShowRegenerateModal(false); toast.success("Stream key regenerated!", { icon: '🔄', style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } }); }
         catch { toast.error("Failed to regenerate key."); }
         finally { setIsLoadingKey(false); }
-    };
+    }, []);
 
-    const copyToClipboard = (text) => { navigator.clipboard.writeText(text); toast.success("Copied!", { id: 'copy-toast', icon: '📋', style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } }); };
+    const copyToClipboard = useCallback((text) => { navigator.clipboard.writeText(text); toast.success("Copied!", { id: 'copy-toast', icon: '📋', style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } }); }, []);
 
-    const handleSendChat = (e) => {
-        e.preventDefault();
-        if (!chatInput.trim()) return;
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) { toast.error('Chat not connected'); return; }
-        wsRef.current.send(JSON.stringify({ text: chatInput.trim() }));
+    const handleSendChat = useCallback((e) => {
+        if (e) e.preventDefault();
+        const trimmed = chatInput.trim();
+        if (!trimmed) return;
+
+        // 1. Client-side Ban Check
+        if (isBannedLocal && !timeoutExpiryLocal) {
+            toast.error("You are permanently banned from this chat.");
+            return;
+        }
+
+        // 2. Client-side Timeout Check
+        if (timeoutExpiryLocal) {
+            const expiry = new Date(timeoutExpiryLocal).getTime();
+            const now = Date.now();
+            if (now < expiry) {
+                const remaining = Math.ceil((expiry - now) / 1000);
+                toast.error(`You are timed out. Wait ${remaining}s.`);
+                return;
+            } else {
+                // Clear state if expired
+                setIsBannedLocal(false);
+                setTimeoutExpiryLocal(null);
+            }
+        }
+
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) { 
+            toast.error('Chat not connected'); 
+            return; 
+        }
+
+        wsRef.current.send(JSON.stringify({ text: trimmed }));
         setChatInput('');
-    };
+    }, [chatInput, isBannedLocal, timeoutExpiryLocal]);
 
-    const handleDeleteMessage = (msgId) => { if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return; wsRef.current.send(JSON.stringify({ type: 'command', action: 'delete_message', msg_id: msgId })); };
-    const handleToggleSlowMode = () => { if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return; wsRef.current.send(JSON.stringify({ type: 'command', action: 'slow_mode', enabled: !slowModeEnabled })); };
+    const handleDeleteMessage = useCallback((msgId) => { if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return; wsRef.current.send(JSON.stringify({ type: 'command', action: 'delete_message', msg_id: msgId })); }, []);
+    const handleToggleSlowMode = useCallback(() => { if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return; wsRef.current.send(JSON.stringify({ type: 'command', action: 'slow_mode', enabled: !slowModeEnabled })); }, [slowModeEnabled]);
 
-    const handleStartPoll = (e) => {
+    const handleStartPoll = useCallback((e) => {
         if (e) e.preventDefault();
         const validOptions = pollOptions.filter(opt => opt.trim());
         if (!pollQuestion.trim() || validOptions.length < 2) {
@@ -879,28 +995,22 @@ const LiveStudio = () => {
         setShowPollModal(false);
         setPollQuestion('');
         setPollOptions(['', '']);
-    };
+    }, [pollOptions, pollQuestion, wsStatus, pollDuration]);
 
-    const handleCreateClip = async () => {
+    const handleCreateClip = useCallback(async () => {
         if (wsStatus !== 'connected') { toast.error('WebSocket not connected'); return; }
         const toastId = toast.loading('🎬 Recording clip... (15s)', { style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }, duration: 15000 });
         try { await ApiClient.post('/live/clip'); setTimeout(() => { toast.success('Clip saved!', { id: toastId }); }, 15000); } catch { toast.error('Failed to log clip', { id: toastId }); }
-    };
+    }, [wsStatus]);
 
-    const handleToggleBrb = () => {
-        if (wsStatus !== 'connected') { toast.error('WebSocket not connected'); return; }
-        const newState = !brbEnabled;
-        wsRef.current.send(JSON.stringify({ type: 'command', action: 'brb', enabled: newState }));
-        setBrbEnabled(newState);
-    };
 
-    const handleStreamMarker = async () => {
+    const handleStreamMarker = useCallback(async () => {
         if (wsStatus !== 'connected') { toast.error('WebSocket not connected'); return; }
         try {
             await ApiClient.post('/live/marker');
             toast.success('📍 Marker saved!', { style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' } });
         } catch { toast.error('Failed to save marker'); }
-    };
+    }, [wsStatus]);
 
     const formatActivityTime = (timestamp) => {
         if (!timestamp) return '';
@@ -911,10 +1021,84 @@ const LiveStudio = () => {
         return `${Math.floor(diff / 86400)}d ago`;
     };
 
+    // ── Moderation Action Handlers ──
+    const handleModAction = (action, duration = null) => {
+        if (!selectedMessage) return;
+
+        if (action === 'delete_message') {
+            if (!wsRef.current) return;
+            wsRef.current.send(JSON.stringify({
+                type: 'command',
+                action: 'delete_message',
+                msg_id: selectedMessage.id
+            }));
+            setShowActionModal(false);
+            setSelectedMessage(null);
+        } else if (action === 'ban_user' || action === 'timeout_user') {
+            setPendingModAction({
+                action,
+                duration,
+                targetUser: { username: selectedMessage.user, id: selectedMessage.user_id }
+            });
+            setShowBanReasonModal(true);
+            setShowActionModal(false);
+        }
+    };
+
+    const confirmModerationAction = async (reason) => {
+        const { action, duration, targetUser } = pendingModAction;
+        if (!targetUser) return;
+
+        try {
+            const endpoint = action === 'ban_user' ? 'ban' : 'timeout';
+            const payload = {
+                username: targetUser.username,
+                reason: reason,
+                duration: duration
+            };
+
+            await ApiClient.post(`/moderator/${currentUser.username}/${endpoint}`, payload);
+            toast.success(`${action === 'ban_user' ? 'Banned' : 'Timed out'} ${targetUser.username}`);
+            
+            setShowBanReasonModal(false);
+            setPendingModAction({ action: '', duration: null, targetUser: null });
+            setSelectedMessage(null);
+            fetchModerationData();
+        } catch (error) {
+            console.error("[Moderation] Action failed:", error);
+            const errorMsg = error.response?.data?.detail || "Action failed";
+            toast.error(errorMsg);
+        }
+    };
+
+    const handleUnbanUser = async (targetUsername) => {
+        try {
+            await ApiClient.delete(`/moderator/${currentUser.username}/unban/${targetUsername}`);
+            toast.success(`Unbanned ${targetUsername}`);
+            fetchModerationData();
+        } catch (error) {
+            toast.error("Failed to unban user");
+        }
+    };
+
+    const handleRemoveMod = async (targetUsername) => {
+        try {
+            await ApiClient.post('/api/permissions/revoke', { username: targetUsername });
+            toast.success(`Removed ${targetUsername} as moderator`);
+            fetchModerationData();
+        } catch (error) {
+            toast.error("Failed to remove moderator");
+        }
+    };
+
     // ── Hype label helper ────────────────────────────────────────────────
-    const hypeColor = hypeLevel >= 3 ? 'text-orange-400' : hypeLevel >= 1.5 ? 'text-yellow-400' : hypeLevel >= 0.5 ? 'text-cyan-400' : 'text-white/20';
-    const hypeLabel = hypeLevel >= 3 ? '🔥 FIRE' : hypeLevel >= 1.5 ? '🔥 HOT' : hypeLevel >= 0.5 ? '✨ Warm' : '😴 Quiet';
-    const hypeBarColor = hypeLevel >= 3 ? 'from-orange-500 to-red-500' : hypeLevel >= 1.5 ? 'from-yellow-500 to-orange-500' : hypeLevel >= 0.5 ? 'from-cyan-500 to-blue-500' : 'from-white/10 to-white/5';
+    // ── Hype derivations (Memoized) ──────────────────────────────────────
+    const hypeUI = useMemo(() => {
+        const color = hypeLevel >= 3 ? 'text-orange-400' : hypeLevel >= 1.5 ? 'text-yellow-400' : hypeLevel >= 0.5 ? 'text-cyan-400' : 'text-white/20';
+        const label = hypeLevel >= 3 ? '🔥 FIRE' : hypeLevel >= 1.5 ? '🔥 HOT' : hypeLevel >= 0.5 ? '✨ Warm' : '😴 Quiet';
+        const barColor = hypeLevel >= 3 ? 'from-orange-500 to-red-500' : hypeLevel >= 1.5 ? 'from-yellow-500 to-orange-500' : hypeLevel >= 0.5 ? 'from-cyan-500 to-blue-500' : 'from-white/10 to-white/5';
+        return { color, label, barColor };
+    }, [hypeLevel]);
 
     // ════════════════════════════════════════════════════════════════════════
     // RENDER — CYBER NOIR
@@ -923,16 +1107,15 @@ const LiveStudio = () => {
     const getBgUrl = (url) => {
         if (!url || url === 'default') return '/videos/default_bg.mp4';
         if (url.startsWith('blob:')) return url;
-        if (url.startsWith('http') || url.startsWith('/videos/')) return url + "#t=0.1";
-        if (url.startsWith('/backgrounds')) return `${API_BASE_URL}/storage/uploads${url}#t=0.1`;
-        return `${API_BASE_URL}${url}#t=0.1`;
+        if (url.startsWith('/videos/')) return url + "#t=0.1";
+        return getValidUrl(url) + "#t=0.1";
     };
 
     return (
         <div className="min-h-screen bg-[#050505] mt-1 pt-1 px-4 sm:px-6 pb-2 text-white relative overflow-hidden" style={{ fontFamily: "'Inter', sans-serif" }}>
             {/* ── Video Background Layer ── */}
             <div className="fixed inset-0 z-0 pointer-events-none">
-                <video key={activeBgUrl || 'default'} src={getBgUrl(activeBgUrl)} crossOrigin="anonymous" preload="auto" autoPlay muted loop playsInline className="w-full h-full object-cover" style={{ opacity: 0.2 }} />
+                <video key={activeBgUrl || 'default'} src={getBgUrl(activeBgUrl)} crossOrigin="anonymous" preload="auto" autoPlay muted loop playsInline className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black transition-opacity duration-300" style={{ opacity: overlayOpacity }} />
             </div>
 
@@ -1035,7 +1218,7 @@ const LiveStudio = () => {
                                 className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg hover:border-white/20 transition-colors text-sm backdrop-blur-3xl"
                             >
                                 <span>👁️</span>
-                                <span className="font-jet font-bold text-xs">{viewerCount}</span>
+                                <span className="font-jet font-bold text-xs">{broadcastMetrics.viewerCount}</span>
                                 <span className="text-white/30 text-[10px]">viewers</span>
                             </motion.button>
                         )}
@@ -1055,7 +1238,7 @@ const LiveStudio = () => {
                             className="max-w-[1920px] mx-auto mb-4"
                         >
                             <div className="bg-white/5 border border-white/10 rounded-xl p-4 max-w-xs backdrop-blur-3xl">
-                                <h3 className="text-[10px] font-jet font-bold uppercase tracking-[0.2em] text-white/40 mb-3">Active Viewers ({viewerCount})</h3>
+                                <h3 className="text-[10px] font-jet font-bold uppercase tracking-[0.2em] text-white/40 mb-3">Active Viewers ({broadcastMetrics.viewerCount})</h3>
                                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                     {viewers.length === 0 && <p className="text-white/20 text-xs">No viewers yet</p>}
                                     {viewers.map((name, i) => (
@@ -1095,8 +1278,10 @@ const LiveStudio = () => {
                                     <div className="bg-white/[0.03] backdrop-blur-3xl neon-panel rounded-2xl p-4 flex flex-col gap-3">
                                         <h2 className="text-[10px] font-bold neon-text uppercase tracking-[0.2em] border-b border-white/10 pb-2">Feed Preview</h2>
                                         <div className="w-full aspect-video bg-black/60 rounded-xl overflow-hidden relative border border-white/10 flex items-center justify-center shadow-2xl">
-                                            {showTestCamera ? (
-                                                <video ref={testVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+                                            {isStaging ? (
+                                                <FlvPlayer streamKey={streamKey} />
+                                            ) : showTestCamera ? (
+                                                <video ref={testVideoRef} autoPlay={true} muted={true} playsInline={true} className="w-full h-full object-cover" />
                                             ) : (
                                                 <div className="flex flex-col items-center gap-3">
                                                     <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
@@ -1105,50 +1290,69 @@ const LiveStudio = () => {
                                                     <span className="text-[9px] font-jet uppercase tracking-widest text-white/30">Camera Standby</span>
                                                 </div>
                                             )}
+                                            
+                                            {isStaging && (
+                                              <div className="absolute top-2 left-2 px-3 py-1 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 rounded-lg text-[10px] font-jet font-bold tracking-[0.25em] uppercase shadow-[0_0_15px_rgba(234,179,8,0.3)] backdrop-blur-xl flex items-center gap-2">
+                                                  <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shadow-[0_0_8px_#eab308]" />
+                                                  STAGING (PREVIEW)
+                                              </div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-2">
-                                            <button onClick={() => setShowTestCamera(!showTestCamera)}
-                                                className={`w-full py-3 rounded-xl text-[10px] font-jet uppercase tracking-widest font-bold transition-all border ${showTestCamera ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 hover:bg-white/10 text-white/60'}`}>
-                                                {showTestCamera ? 'Stop Preview' : 'Start Preview Monitor'}
-                                            </button>
+                                            {!isStaging && (
+                                                <button onClick={() => setShowTestCamera(!showTestCamera)}
+                                                    className={`w-full py-3 rounded-xl text-[10px] font-jet uppercase tracking-widest font-bold transition-all border ${showTestCamera ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 hover:bg-white/10 text-white/60'}`}>
+                                                    {showTestCamera ? 'Stop Preview' : 'Start Preview Monitor'}
+                                                </button>
+                                            )}
 
-                                            <motion.button
-                                                whileHover={canStartBroadcast ? { scale: 1.02 } : {}}
-                                                whileTap={canStartBroadcast ? { scale: 0.98 } : {}}
-                                                onClick={() => {
-                                                    if (!canStartBroadcast) {
-                                                        toast.error("Please complete the checklist first.");
-                                                        return;
-                                                    }
-                                                    handleUpdateMetadata();
-                                                    setStudioMode('broadcast');
-                                                    initPlayer();
-                                                }}
-                                                className={`w-full py-4 rounded-xl text-xs font-black tracking-[0.2em] uppercase transition-all flex items-center justify-center gap-2 ${canStartBroadcast ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500/30' : 'bg-white/[0.02] text-white/10 border border-white/5 cursor-not-allowed'}`}
-                                            >
-                                                READY TO GO LIVE 🚀
-                                            </motion.button>
+                                            {isStaging && (
+                                                <motion.button
+                                                    whileHover={canStartBroadcast ? { scale: 1.02 } : {}}
+                                                    whileTap={canStartBroadcast ? { scale: 0.98 } : {}}
+                                                    onClick={() => {
+                                                        if (!canStartBroadcast) {
+                                                            toast.error("Please complete the checklist first.");
+                                                            return;
+                                                        }
+                                                        handleStartBroadcast();
+                                                        setStudioMode('broadcast');
+                                                    }}
+                                                    className={`w-full py-4 rounded-xl text-xs font-black tracking-[0.2em] uppercase transition-all flex items-center justify-center gap-2 ${canStartBroadcast ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500/30' : 'bg-white/[0.02] text-white/10 border border-white/5 cursor-not-allowed'} shadow-[0_0_15px_rgba(16,185,129,0.3)]`}
+                                                >
+                                                    <span className="text-emerald-400 drop-shadow-[0_0_8px_#34d399]">🔴</span> GO LIVE
+                                                </motion.button>
+                                            )}
                                         </div>
                                     </div>
 
                                     {/* Pre-Flight Checklist (Inlined) */}
-                                    <div className="bg-white/[0.03] backdrop-blur-3xl neon-panel rounded-2xl p-5 flex flex-col gap-3">
-                                        <h2 className="text-[10px] font-bold neon-text uppercase tracking-[0.2em] border-b border-white/10 pb-2">Pre-Flight Checklist</h2>
-                                        <div className="space-y-2">
-                                            {[
-                                                { label: 'Title & Meta', checked: streamTitle.trim().length > 0 },
-                                                { label: 'Description', checked: streamDescription.trim().length > 0 },
-                                                { label: 'Camera Link', checked: isCameraReady },
-                                                { label: 'Audio Signal', checked: isMicReady },
-                                            ].map((item, i) => (
-                                                <div key={i} className="flex items-center gap-3">
-                                                    <div className={`w-4 h-4 rounded-full flex items-center justify-center border ${item.checked ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-white/5 border-white/20 text-white/20'}`}>
-                                                        {item.checked ? <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> : <span className="text-[8px] font-bold">!</span>}
-                                                    </div>
-                                                    <span className={`text-[11px] ${item.checked ? 'text-white/80' : 'text-white/40'}`}>{item.label}</span>
+                                    <div className={`bg-white/[0.03] backdrop-blur-3xl neon-panel rounded-2xl p-5 flex flex-col gap-3 transition-all duration-700 ${canStartBroadcast ? 'border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.15)]' : ''}`}>
+                                        <h2 className={`text-[10px] font-bold uppercase tracking-[0.2em] border-b border-white/10 pb-2 transition-colors ${canStartBroadcast ? 'text-emerald-400' : 'neon-text'}`}>Pre-Flight Checklist</h2>
+                                        {canStartBroadcast && !isStaging ? (
+                                            <div className="flex flex-col items-center justify-center p-4">
+                                                <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mb-3 shadow-[0_0_15px_#10b981]">
+                                                    <span className="text-2xl drop-shadow-[0_0_8px_#34d399]">✅</span>
                                                 </div>
-                                            ))}
-                                        </div>
+                                                <p className="text-emerald-400 font-jet font-bold text-[10px] uppercase tracking-widest text-center shadow-emerald-500 w-full animate-pulse transition-all">All systems go! START STREAMING IN OBS</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {[
+                                                    { label: 'Title & Meta', checked: streamTitle.trim().length > 0 },
+                                                    { label: 'Description', checked: streamDescription.trim().length > 0 },
+                                                    { label: 'Camera Link', checked: isCameraReady },
+                                                    { label: 'Audio Signal', checked: isMicReady },
+                                                ].map((item, i) => (
+                                                    <div key={i} className="flex items-center gap-3">
+                                                        <div className={`w-4 h-4 rounded-full flex items-center justify-center border ${item.checked ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-white/5 border-white/20 text-white/20'}`}>
+                                                            {item.checked ? <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> : <span className="text-[8px] font-bold">!</span>}
+                                                        </div>
+                                                        <span className={`text-[11px] ${item.checked ? 'text-white/80' : 'text-white/40'}`}>{item.label}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -1170,6 +1374,10 @@ const LiveStudio = () => {
                                                     <select value={streamCategory} onChange={(e) => setStreamCategory(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/90 outline-none focus:border-red-500/50 transition-colors cursor-pointer neon-input appearance-none">
                                                         {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#0f0f0f]">{c}</option>)}
                                                     </select>
+                                                </div>
+                                                <div className="flex gap-2 pt-2">
+                                                    <button onClick={() => { setStreamTitle(''); setStreamDescription(''); setStreamCategory('Gaming'); }} className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/40 text-[10px] font-jet uppercase tracking-widest rounded-xl transition-colors border border-white/10">Reset Settings</button>
+                                                    <button onClick={handleUpdateMetadata} disabled={isSubmitting} className="flex-1 py-3 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-[10px] font-jet uppercase tracking-widest rounded-xl transition-colors border border-cyan-500/30">Save Settings</button>
                                                 </div>
                                             </div>
 
@@ -1340,15 +1548,16 @@ const LiveStudio = () => {
                             {/* Center Column: Main Preview & controls */}
                             <div className="flex-1 flex flex-col gap-5">
 
-                                {/* Dashboard Stats Row */}
-                                <div className="grid grid-cols-5 gap-3 shrink-0">
-                                    {[
-                                        { label: 'Current Viewers', value: viewerCount, icon: '👁️', color: 'text-emerald-400' },
-                                        { label: 'Peak Viewers', value: peakViewers, icon: '📈', color: 'text-cyan-400' },
-                                        { label: 'Total Watch Time', value: formatWatchTime(totalWatchTime), icon: '⏱️', color: 'text-purple-400' },
-                                        { label: 'New Subs', value: newSubscribersCount, icon: '⭐', color: 'text-yellow-400' },
-                                        { label: 'Chat Rate (msg/m)', value: messageRate, icon: '💬', color: 'text-pink-400' },
-                                    ].map((stat, i) => (
+                                    {/* Dashboard Stats Row */}
+                                    <div className="grid grid-cols-6 gap-3 shrink-0">
+                                        {[
+                                            { label: 'Current Viewers', value: broadcastMetrics.viewerCount, icon: '👁️', color: 'text-emerald-400' },
+                                            { label: 'Peak Viewers', value: broadcastMetrics.peakViewers, icon: '📈', color: 'text-cyan-400' },
+                                            { label: 'Total Watch Time', value: watchTimeStr, icon: '⏱️', color: 'text-purple-400' },
+                                            { label: 'New Subs', value: broadcastMetrics.newSubscribersCount, icon: '⭐', color: 'text-yellow-400' },
+                                            { label: 'Chat Rate (msg/m)', value: broadcastMetrics.messageRate, icon: '💬', color: 'text-pink-400' },
+                                            { label: 'Mod Actions', value: moderators.length + bannedUsers.length, icon: '🛡️', color: 'text-[#00ffcc]' },
+                                        ].map((stat, i) => (
                                         <div key={i} className="bg-white/[0.03] backdrop-blur-3xl neon-panel rounded-xl p-4 flex flex-col gap-1 border border-white/5 transition-all hover:bg-white/[0.05]">
                                             <div className="flex items-center gap-2 text-white/40 text-[10px] uppercase font-jet tracking-widest">
                                                 <span>{stat.icon}</span> {stat.label}
@@ -1362,7 +1571,85 @@ const LiveStudio = () => {
 
                                 {/* Main Video View */}
                                 <div className="w-full max-w-4xl mx-auto aspect-video bg-black rounded-xl overflow-hidden relative flex flex-col items-center justify-center neon-panel shadow-2xl shrink-0 border border-white/10 group">
-                                    <video ref={videoRef} autoPlay muted className="w-full h-full object-contain block" />
+                                    <FlvPlayer streamKey={streamKey} />
+
+                                    {/* Poll Overlay — Transferred from Global Scope */}
+                                    <AnimatePresence>
+                                        {isLive && activePoll && pollPhase === 'active' && (
+                                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
+                                                className="absolute top-4 left-4 z-50 bg-[#0a0a0a]/90 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 w-72 shadow-2xl">
+                                                <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+                                                    <span className="text-[9px] font-jet font-bold uppercase tracking-[0.2em] text-red-400" style={{ textShadow: '0 0 8px rgba(239,68,68,0.3)' }}>
+                                                        📊 Live Poll
+                                                    </span>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className={`text-[10px] font-jet font-bold ${pollTimeLeft <= 10 ? 'text-red-400 animate-pulse' : 'text-white/60'}`}>
+                                                            ⏱️ {pollTimeStr}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <p className="text-xs font-bold text-white/70 mb-3">{activePoll.question}</p>
+                                                <div className="space-y-2">
+                                                    {activePoll.options?.map((opt, i) => {
+                                                        const optName = typeof opt === 'object' ? opt.name : opt;
+                                                        const votes = typeof opt === 'object' ? (opt.votes || 0) : (activePoll.votes?.[opt] || 0);
+                                                        const totalVotes = activePoll.total || 0;
+                                                        const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+
+                                                        return (
+                                                            <div key={optName || i} className="relative rounded-lg overflow-hidden border bg-white/[0.03] border-white/[0.04]">
+                                                                <div className="absolute top-0 left-0 h-full transition-all duration-500 ease-out bg-emerald-500/30" style={{ width: `${pct}%` }} />
+                                                                <div className="relative flex justify-between items-center px-3 py-1.5 z-10">
+                                                                    <span className="text-[10px] font-bold text-white/70">{optName}</span>
+                                                                    <span className="text-[9px] font-jet text-white/30">{pct}%</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </motion.div>
+                                        )}
+
+                                        {/* Results HUD */}
+                                        {isLive && activePoll && pollPhase === 'results' && (
+                                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+                                                className="absolute top-4 left-4 z-50 bg-[#0a0a0a]/95 backdrop-blur-3xl border border-yellow-500/30 rounded-2xl p-4 w-72 shadow-[0_0_30px_rgba(250,204,21,0.15)]">
+                                                <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+                                                    <span className="text-[9px] font-jet font-bold uppercase tracking-[0.2em] text-yellow-500" style={{ textShadow: '0 0 8px rgba(250,204,21,0.3)' }}>
+                                                        🏆 Poll Results
+                                                    </span>
+                                                    <span className="text-[9px] text-white/20 font-jet">{activePoll.total || 0} votes</span>
+                                                </div>
+                                                <p className="text-xs font-bold text-white/70 mb-3">{activePoll.question}</p>
+                                                <div className="space-y-2">
+                                                    {activePoll.options?.map((opt, i) => {
+                                                        const optName = typeof opt === 'object' ? opt.name : opt;
+                                                        const votes = typeof opt === 'object' ? (opt.votes || 0) : (activePoll.votes?.[opt] || 0);
+                                                        const totalVotes = activePoll.total || 0;
+                                                        const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                                                        const isWinner = pct === Math.max(...(activePoll.options?.map(o => {
+                                                            const v = typeof o === 'object' ? (o.votes || 0) : (activePoll.votes?.[o] || 0);
+                                                            return totalVotes > 0 ? Math.round((v / totalVotes) * 100) : 0;
+                                                        }) || [0])) && votes > 0;
+
+                                                        return (
+                                                            <div key={optName || i} className={`relative rounded-lg overflow-hidden border ${isWinner ? 'border-yellow-500/50 bg-yellow-500/10' : 'bg-white/[0.03] border-white/[0.04]'}`}>
+                                                                <div className={`absolute top-0 left-0 h-full transition-all duration-500 ${isWinner ? 'bg-yellow-500/20' : 'bg-emerald-500/10'}`} style={{ width: `${pct}%` }} />
+                                                                <div className="relative flex justify-between items-center px-3 py-1.5 z-10">
+                                                                    <span className={`text-[10px] font-bold ${isWinner ? 'text-yellow-400' : 'text-white/70'}`}>{optName}</span>
+                                                                    <span className={`text-[9px] font-jet ${isWinner ? 'text-yellow-400' : 'text-white/30'}`}>{pct}%</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <button onClick={() => { setActivePoll(null); setPollPhase('none'); }}
+                                                    className="w-full mt-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-[8px] font-jet uppercase tracking-widest text-white/40 hover:text-white transition-all">
+                                                    Dismiss
+                                                </button>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
 
                                     {!isLive && (
                                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#050505]/95 z-40">
@@ -1373,7 +1660,7 @@ const LiveStudio = () => {
                                             <p className="text-white/30 font-jet font-bold tracking-[0.4em] uppercase mb-6 text-xs text-center">
                                                 {signalDetected ? 'Signal Detected. Ready to cut live.' : 'Awaiting Video Signal'}
                                             </p>
-                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={initPlayer} disabled={isConnecting} className={`relative z-50 px-10 py-4 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all overflow-hidden ${isConnecting ? 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5' : 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'}`} style={!isConnecting ? { textShadow: '0 0 15px rgba(239,68,68,0.5)', boxShadow: '0 0 20px rgba(239,68,68,0.2)' } : {}}>
+                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={() => {}} disabled={isConnecting} className={`relative z-50 px-10 py-4 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all overflow-hidden ${isConnecting ? 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5' : 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'}`} style={!isConnecting ? { textShadow: '0 0 15px rgba(239,68,68,0.5)', boxShadow: '0 0 20px rgba(239,68,68,0.2)' } : {}}>
                                                 {isConnecting ? 'CONNECTING...' : 'FORCE REFRESH FEED'}
                                             </motion.button>
                                         </div>
@@ -1381,14 +1668,15 @@ const LiveStudio = () => {
 
                                     {/* Broadcast Top HUD Overlay */}
                                     <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start pointer-events-none bg-gradient-to-b from-black/80 to-transparent z-30 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                        <div className={`px-3 py-1.5 flex items-center gap-2 rounded-lg text-[10px] font-jet font-bold tracking-[0.25em] uppercase border backdrop-blur-xl ${isLive ? 'bg-red-500/20 text-red-400 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-black/60 text-white/40 border-white/10'}`}>
+                                        <div className={`px-3 py-1.5 flex items-center gap-2 rounded-lg text-[10px] font-jet font-bold tracking-[0.25em] uppercase border backdrop-blur-xl ${isLive ? 'bg-red-500/20 text-red-400 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : isStaging ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'bg-black/60 text-white/40 border-white/10'}`}>
                                             {isLive && <motion.span animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />}
-                                            {!isLive && <span className="w-2 h-2 rounded-full bg-white/20 inline-block" />}
-                                            {isLive ? 'ON AIR' : 'OFFLINE'}
+                                            {isStaging && <motion.span animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 2, repeat: Infinity }} className="w-2 h-2 rounded-full bg-yellow-500 shadow-[0_0_8px_#eab308]" />}
+                                            {!isLive && !isStaging && <span className="w-2 h-2 rounded-full bg-white/20 inline-block" />}
+                                            {isLive ? 'ON AIR' : isStaging ? 'PREVIEW' : 'OFFLINE'}
                                         </div>
                                         <div className="flex gap-3">
                                             <div className="px-3 py-1.5 bg-black/60 border border-white/10 rounded-lg backdrop-blur-md flex items-center gap-2 font-jet text-[10px] text-white/70 tracking-widest">
-                                                ⏱ <span className="font-bold">{formatUptime(uptime)}</span>
+                                                ⏱ <span className="font-bold">{uptimeStr}</span>
                                             </div>
                                             <div className="px-3 py-1.5 bg-black/60 border border-white/10 rounded-lg backdrop-blur-md flex items-center gap-2 font-jet text-[10px] text-white/70 tracking-widest">
                                                 📡 <span className="font-bold text-cyan-400">{streamStats.bitrate} kbps</span>
@@ -1397,24 +1685,31 @@ const LiveStudio = () => {
                                     </div>
                                 </div>
 
-                                {/* Simplified Action Bar */}
-                                <div className="bg-white/[0.03] backdrop-blur-3xl neon-panel rounded-2xl p-4 grid grid-cols-3 items-center border border-white/5 shrink-0">
-                                    {/* Left Alignment: Live Indicator */}
-                                    <div className="flex justify-start">
-                                        <div className={`px-4 py-2 flex items-center gap-2 rounded-lg text-xs font-jet font-bold tracking-[0.2em] uppercase border backdrop-blur-xl ${isLive ? 'bg-red-500/10 text-red-500 border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-black/40 text-white/30 border-white/10'}`}>
+                                {/* Refined Action Bar - 3-Zone Flex Layout */}
+                                <div className="bg-white/[0.03] backdrop-blur-3xl neon-panel rounded-2xl p-4 flex flex-col lg:flex-row justify-between items-center gap-6 border border-white/5 shrink-0">
+                                    {/* Left Zone: Live Indicator */}
+                                    <div className="flex-1 flex justify-start w-full lg:w-auto">
+                                        <div className={`px-4 py-2 flex items-center gap-2 rounded-lg text-xs font-jet font-bold tracking-[0.2em] uppercase border backdrop-blur-xl ${isLive ? 'bg-red-500/10 text-red-500 border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : isStaging ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/40 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'bg-black/40 text-white/30 border-white/10'}`}>
                                             {isLive && <motion.span animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]" />}
-                                            {!isLive && <span className="w-2.5 h-2.5 rounded-full bg-white/20 inline-block" />}
-                                            {isLive ? 'BROADCASTING' : 'OFFLINE'}
+                                            {isStaging && <motion.span animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 2, repeat: Infinity }} className="w-2.5 h-2.5 rounded-full bg-yellow-500 shadow-[0_0_10px_#eab308]" />}
+                                            {!isLive && !isStaging && <span className="w-2.5 h-2.5 rounded-full bg-white/20 inline-block" />}
+                                            {isLive ? 'BROADCASTING' : isStaging ? 'STAGING (PREVIEW)' : 'OFFLINE'}
                                         </div>
                                     </div>
 
-                                    {/* Center Alignment: Action Controls */}
-                                    <div className="flex gap-4 justify-center">
+                                    {/* Center Zone: Action Controls */}
+                                    <div className="flex flex-wrap gap-4 justify-center items-center w-full lg:w-auto order-2">
                                         <button onClick={() => setShowPollModal(true)} disabled={!isLive} className={`px-6 py-3 rounded-xl border border-fuchsia-500/30 text-fuchsia-400 text-xs font-jet uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(217,70,239,0.1)] flex items-center gap-2 ${isLive ? 'bg-fuchsia-500/10 hover:bg-fuchsia-500/20' : 'bg-black/40 opacity-30 cursor-not-allowed'}`}>
                                             📊 Start Poll
                                         </button>
                                         <button onClick={() => copyToClipboard(`https://utube.test/live/${currentUser?.username}`)} className="px-6 py-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-jet uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(6,182,212,0.1)]">
                                             🔗 Share Link
+                                        </button>
+                                        <button 
+                                            onClick={() => setShowModerationPanel(true)} 
+                                            className="px-6 py-3 rounded-xl border border-[#00ffcc]/30 bg-[#00ffcc]/10 hover:bg-[#00ffcc]/20 text-[#00ffcc] text-xs font-jet uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(0,255,204,0.1)] flex items-center gap-2"
+                                        >
+                                            🛡️ Moderation
                                         </button>
                                         <motion.button
                                             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
@@ -1430,8 +1725,25 @@ const LiveStudio = () => {
                                         </motion.button>
                                     </div>
 
-                                    {/* Right Alignment: Spacer */}
-                                    <div className="flex justify-end"></div>
+                                    {/* Right Zone: Controls & Hype */}
+                                    <div className="flex-1 flex items-center justify-end gap-5 w-full lg:w-auto order-3">
+                                        <div className="flex flex-col items-end gap-1.5 min-w-[120px]">
+                                            <div className="flex items-center gap-2 px-3 py-1 bg-white/[0.04] border border-white/10 rounded-full backdrop-blur-md self-end">
+                                                <span className="text-[9px] font-jet uppercase tracking-[0.2em] text-emerald-400 flex items-center gap-2">
+                                                    {hypeUI.label}
+                                                </span>
+                                            </div>
+                                            <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                                                <motion.div 
+                                                    className={`h-full bg-gradient-to-r ${hypeUI.barColor}`}
+                                                    initial={{ width: 0 }}
+                                                    animate={{ width: `${Math.min(100, (hypeLevel / 4) * 100)}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                        
+
+                                    </div>
                                 </div>
                             </div>
 
@@ -1448,14 +1760,38 @@ const LiveStudio = () => {
                                 <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-black/10 relative" onScroll={handleChatScroll}>
                                     {chatMessages.length === 0 && <p className="text-white/10 text-[11px] text-center py-8 font-jet">Silence in the chat...</p>}
                                     {chatMessages.map((msg, idx) => (
-                                        <div key={msg.id || idx} className="text-[12px] leading-relaxed group flex items-start justify-between gap-1">
-                                            <div>
-                                                <span className="inline-flex items-center gap-1 mr-1.5">
-                                                    {msg.isMod && <span className="text-[8px] bg-emerald-500/10 text-emerald-400/80 border border-emerald-500/20 px-1 rounded font-jet uppercase tracking-wider" style={{ textShadow: '0 0 6px #22c55e60' }}>Mod</span>}
-                                                    <span className={msg.isMod ? 'text-emerald-400 font-semibold' : 'text-cyan-400/70 font-medium'} style={msg.isMod ? { textShadow: '0 0 8px #22c55e40' } : { textShadow: '0 0 6px #06b6d430' }}>{msg.user}</span>
+                                        <div 
+                                            key={msg.id || idx} 
+                                            className="text-[12px] leading-relaxed group relative flex items-start justify-between gap-1 px-2 py-1 -mx-2 rounded hover:bg-white/[0.03] transition-colors"
+                                        >
+                                            <div className="flex-1 min-w-0">
+                                                <span 
+                                                    className="inline-flex items-center gap-1 mr-1.5 cursor-pointer"
+                                                    onClick={() => {
+                                                        setSelectedMessage(msg);
+                                                        setShowActionModal(true);
+                                                    }}
+                                                >
+                                                    <UserBadge tier={msg.tier} isCreator={msg.user === currentUser?.username} />
+                                                    <span className={msg.tier === 5 ? 'text-red-400 font-semibold' : (msg.tier >= 2 ? 'text-emerald-400 font-semibold' : 'text-cyan-400/70 font-medium')} style={msg.tier >= 2 ? { textShadow: '0 0 8px currentColor' } : { textShadow: '0 0 6px #06b6d430' }}>{msg.user}</span>
                                                 </span>
                                                 <span className="text-white/80">{msg.text}</span>
                                             </div>
+
+                                            {/* Action Dots */}
+                                            {msg.type !== 'system' && (
+                                                <button 
+                                                    onClick={() => {
+                                                        setSelectedMessage(msg);
+                                                        setShowActionModal(true);
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded-full transition-all text-white/30 hover:text-white"
+                                                >
+                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                                    </svg>
+                                                </button>
+                                            )}
                                         </div>
                                     ))}
                                     <div ref={chatEndRef} />
@@ -1497,6 +1833,147 @@ const LiveStudio = () => {
                         </motion.div>
                     )}
                 </AnimatePresence>
+
+
+            </div>
+
+            {/* ═══ QUICK ACTION MODAL OVERLAY ═══ */}
+            <AnimatePresence>
+                                {showActionModal && selectedMessage && (
+                                    <motion.div 
+                                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                        className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                                        onClick={() => setShowActionModal(false)}
+                                    >
+                                        <motion.div 
+                                            initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                                            className="bg-[#0a0a0a]/95 border border-[#00ffcc]/20 w-full max-w-[280px] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden"
+                                            onClick={e => e.stopPropagation()}
+                                        >
+                                            <div className="flex justify-between items-center px-4 py-3 border-b border-white/5 bg-white/5">
+                                                <span className="text-sm font-bold text-white flex items-center gap-2">
+                                                    👤 {selectedMessage.user}
+                                                    <UserBadge tier={selectedMessage.tier} isCreator={selectedMessage.user === currentUser?.username} />
+                                                </span>
+                                                <button onClick={() => setShowActionModal(false)} className="text-white/40 hover:text-white transition-colors">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                </button>
+                                            </div>
+                                            <div className="p-2 space-y-1">
+                                                <button onClick={() => handleModAction('delete_message')} className="w-full text-left px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white rounded flex items-center gap-2 transition-colors">🗑️ Delete message</button>
+                                                <hr className="border-white/5 my-1" />
+                                                <div className="px-2 py-1">
+                                                    <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest block mb-2">Timeout (Silent)</span>
+                                                    <div className="flex gap-1">
+                                                        <button onClick={() => handleModAction('timeout_user', 60)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">1m</button>
+                                                        <button onClick={() => handleModAction('timeout_user', 300)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">5m</button>
+                                                        <button onClick={() => handleModAction('timeout_user', 600)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">10m</button>
+                                                    </div>
+                                                </div>
+                                                <div className="px-2 py-1">
+                                                    <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest block mb-2 mt-1">Permanent Actions</span>
+                                                    <button onClick={() => handleModAction('ban_user')} className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded text-[10px] font-black tracking-widest uppercase">BAN USER</button>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    </motion.div>
+                                )}
+            </AnimatePresence>
+
+                            {/* ═══ MODERATION PANEL (Slide-in) ═══ */}
+                            <AnimatePresence>
+                                {showModerationPanel && (
+                                    <div className="fixed inset-0 z-[150] overflow-hidden">
+                                        <motion.div 
+                                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                            onClick={() => setShowModerationPanel(false)}
+                                            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                                        />
+                                        <motion.div 
+                                            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+                                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                                            className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-[#0a0a0a] border-l border-white/10 shadow-2xl flex flex-col"
+                                        >
+                                            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+                                                <h2 className="text-xl font-black text-white tracking-[0.2em] uppercase flex items-center gap-3">
+                                                    <span className="text-[#00ffcc] shadow-[0_0_15px_#00ffcc]">🛡️</span> Moderation Panel
+                                                </h2>
+                                                <button onClick={() => setShowModerationPanel(false)} className="p-2 hover:bg-white/10 rounded-full transition-all text-white/40 hover:text-white">
+                                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                </button>
+                                            </div>
+
+                                            <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-white/10">
+                                                {/* Section: Moderators */}
+                                                <section>
+                                                    <div className="flex justify-between items-center mb-4">
+                                                        <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em]">Channel Moderators</h3>
+                                                        <button 
+                                                            onClick={async () => {
+                                                                const username = window.prompt("Enter username to add as moderator:");
+                                                                if (username) {
+                                                                    try {
+                                                                        await ApiClient.post('/api/permissions/grant', { username, tier: 2 });
+                                                                        toast.success(`Added ${username} as moderator`);
+                                                                        fetchModerationData();
+                                                                    } catch (e) { toast.error(e.response?.data?.detail || "Failed to add mod"); }
+                                                                }
+                                                            }}
+                                                            className="text-[10px] font-bold text-[#00ffcc] hover:underline uppercase tracking-widest"
+                                                        >+ Add New</button>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        {moderators.length === 0 ? (
+                                                            <div className="p-4 rounded-xl border border-dashed border-white/5 text-center text-[10px] text-white/20 italic">No moderators assigned yet.</div>
+                                                        ) : (
+                                                            moderators.map(mod => (
+                                                                <div key={mod.id} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-[#00ffcc]/20 transition-all">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-xs font-bold text-cyan-400">
+                                                                            {mod.username[0].toUpperCase()}
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm font-bold text-white">{mod.username}</p>
+                                                                            <p className="text-[9px] text-cyan-500/50 uppercase tracking-widest font-jet">{mod.role}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <button onClick={() => handleRemoveMod(mod.username)} className="text-[10px] font-bold text-red-500/50 hover:text-red-500 uppercase tracking-widest">Remove</button>
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                </section>
+
+                                                {/* Section: Banned Users */}
+                                                <section>
+                                                    <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em] mb-4">Current Bans</h3>
+                                                    <div className="space-y-2">
+                                                        {bannedUsers.length === 0 ? (
+                                                            <div className="p-4 rounded-xl border border-dashed border-white/5 text-center text-[10px] text-white/20 italic">Your channel is positive — no bans!</div>
+                                                        ) : (
+                                                            bannedUsers.map(ban => (
+                                                                <div key={ban.username} className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl border border-white/5">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <p className="text-sm font-bold text-white/80">{ban.username}</p>
+                                                                        <span className="text-[8px] text-zinc-600 font-mono italic">Banned on {new Date(ban.created_at).toLocaleDateString()}</span>
+                                                                    </div>
+                                                                    <button onClick={() => handleUnbanUser(ban.username)} className="text-[10px] font-bold text-[#00ffcc]/50 hover:text-[#00ffcc] uppercase tracking-widest">Unban</button>
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                </section>
+                                            </div>
+                                            
+                                            <div className="p-6 border-t border-white/10 bg-black/40">
+                                                <button onClick={fetchModerationData} className="w-full py-3 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all">
+                                                    Refresh Data
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    </div>
+                                )}
+                            </AnimatePresence>
 
                 {/* ═══ Poll Modal ═══ */}
                 <AnimatePresence>
@@ -1551,87 +2028,8 @@ const LiveStudio = () => {
                     )}
                 </AnimatePresence>
 
-                {/* ═══ Active Poll HUD ═══ */}
-                <AnimatePresence>
-                    {isLive && activePoll && pollPhase === 'active' && (
-                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-                            className="fixed bottom-6 left-6 z-[90] bg-[#0a0a0a]/95 border border-white/10 rounded-2xl p-4 w-80 shadow-2xl backdrop-blur-3xl">
-                            <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
-                                <span className={`text-[9px] font-jet font-bold uppercase tracking-[0.2em] ${pollPhase === 'results' ? 'text-yellow-400' : 'text-red-400'}`} style={pollPhase === 'results' ? { textShadow: '0 0 8px rgba(250,204,21,0.3)' } : { textShadow: '0 0 8px rgba(239,68,68,0.3)' }}>
-                                    {pollPhase === 'results' ? '🏆 Poll Results' : '📊 Live Poll'}
-                                </span>
-                                <div className="flex items-center gap-3">
-                                    {pollPhase === 'active' && (
-                                        <span className={`text-[10px] font-jet font-bold ${pollTimeLeft <= 10 ? 'text-red-400 animate-pulse' : 'text-white/60'}`}>
-                                            ⏱️ {formatPollTime(pollTimeLeft)}
-                                        </span>
-                                    )}
-                                    <span className="text-[9px] text-white/20 font-jet">{activePoll.total || 0} votes</span>
-                                </div>
-                            </div>
-                            <p className="text-xs font-bold text-white/70 mb-3">{activePoll.question}</p>
-                            <div className="space-y-2">
-                                {(() => {
-                                    // Calculate total votes safely
-                                    const totalVotes = activePoll.options?.reduce((sum, opt) => {
-                                        const v = typeof opt === 'object' ? (opt.votes || 0) : (activePoll.votes?.[opt] || 0);
-                                        return sum + v;
-                                    }, 0) || 0;
+                {/* ═══ Active Poll HUD (DELETED - MOVED TO OVERLAY) ═══ */}
 
-                                    // Calculate winner for results phase
-                                    let maxVotes = -1;
-                                    let winningOption = null;
-                                    if (pollPhase === 'results') {
-                                        activePoll.options?.forEach(opt => {
-                                            const v = typeof opt === 'object' ? (opt.votes || 0) : (activePoll.votes?.[opt] || 0);
-                                            if (v > maxVotes) { maxVotes = v; winningOption = opt; }
-                                        });
-                                    }
-
-                                    return activePoll.options?.map((opt, i) => {
-                                        const optName = typeof opt === 'object' ? opt.name : opt;
-                                        const votes = typeof opt === 'object' ? (opt.votes || 0) : (activePoll.votes?.[opt] || 0);
-
-                                        // Safely calculate percentage
-                                        const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
-                                        const isWinner = pollPhase === 'results' && opt === winningOption && votes > 0;
-
-                                        return (
-                                            <div key={optName || i} className={`relative rounded-lg overflow-hidden border ${isWinner ? 'border-yellow-500/50 bg-yellow-500/10 shadow-[0_0_15px_rgba(250,204,21,0.2)]' : 'bg-white/[0.03] border-white/[0.04]'}`}>
-                                                <div
-                                                    className={`absolute top-0 left-0 h-full transition-all duration-500 ease-out rounded ${isWinner ? 'bg-yellow-500/20' : 'bg-emerald-500/30'}`}
-                                                    style={{ width: `${pct}%` }}
-                                                />
-                                                <div className="relative flex justify-between items-center px-3 py-2 z-10">
-                                                    <span className={`text-[11px] font-bold flex items-center gap-1.5 ${isWinner ? 'text-yellow-400' : 'text-white/70'}`}>
-                                                        {isWinner && <span className="mr-1 text-[9px] uppercase tracking-wider">👑 Winner</span>}
-                                                        {optName}
-                                                    </span>
-                                                    <span className={`text-[10px] font-jet ${isWinner ? 'text-yellow-400' : 'text-white/30'}`}>{pct}%</span>
-                                                </div>
-                                            </div>
-                                        );
-                                    });
-                                })()}
-                            </div>
-
-                            {/* Close Results Button */}
-                            {pollPhase === 'results' && (
-                                <button
-                                    onClick={() => {
-                                        setActivePoll(null);
-                                        setPollPhase('none');
-                                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                                            wsRef.current.send(JSON.stringify({ type: 'command', action: 'poll_end' }));
-                                        }
-                                    }}
-                                    className="w-full mt-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[9px] font-jet uppercase tracking-widest text-white/50 hover:text-white transition-all">
-                                    Close Results
-                                </button>
-                            )}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
 
                 {/* Background Library Modal Drop-in */}
                 <BackgroundGalleryModal
@@ -1664,22 +2062,30 @@ const LiveStudio = () => {
                                         className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white/60 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase transition-colors">
                                         Cancel
                                     </motion.button>
-                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => {
+                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={async () => {
                                         if (showRegenerateModal) {
                                             handleRegenerateKey();
                                         } else if (showStopModal) {
-                                            if (flvPlayerRef.current) {
-                                                try { flvPlayerRef.current.unload(); flvPlayerRef.current.detachMediaElement(); flvPlayerRef.current.destroy(); } catch (e) { } flvPlayerRef.current = null;
+                                            const stopToast = toast.loading("Ending broadcast...");
+                                            try {
+                                                await ApiClient.post('/auth/live/end-broadcast');
+                                                setIsLive(false);
+                                                setIsConnecting(false);
+                                                setStudioMode('setup');
+                                                setShowStopModal(false);
+                                                setChatMessages([]);
+                                                setActivePoll(null); 
+                                                setPollPhase('none');
+                                                setShowPollModal(false);
+                                                toast.success("Broadcast Stopped", { id: stopToast });
+                                            } catch (err) {
+                                                const msg = err.response?.data?.detail || "Failed to end broadcast.";
+                                                toast.error(msg, { id: stopToast, duration: 5000 });
+                                                if (msg.toLowerCase().includes('obs')) {
+                                                    // Highlight the specific warning
+                                                    console.warn("[STOP GUARD] OBS still active");
+                                                }
                                             }
-                                            setIsLive(false);
-                                            setIsConnecting(false);
-                                            setStudioMode('setup');
-                                            setShowStopModal(false);
-                                            setChatMessages([]);
-                                            setActivePoll(null); // ERADICATE GHOST POLLS
-                                            setPollPhase('none');
-                                            setShowPollModal(false);
-                                            toast.success("Broadcast Stopped");
                                         }
                                     }}
                                         className="flex-1 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-500 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase transition-colors shadow-[0_0_15px_rgba(239,68,68,0.2)]">
@@ -1690,7 +2096,25 @@ const LiveStudio = () => {
                         </motion.div>
                     )}
                 </AnimatePresence>
-            </div>
+            {/* ═══ MODERATION REASON DIALOG ═══ */}
+            <BanReasonDialog
+                isOpen={showBanReasonModal}
+                onClose={() => {
+                    setShowBanReasonModal(false);
+                    setPendingModAction({ action: '', duration: null, targetUser: null });
+                }}
+                onConfirm={confirmModerationAction}
+                username={pendingModAction.targetUser?.username}
+                actionType={pendingModAction.action === 'ban_user' ? 'ban' : 'timeout'}
+                duration={pendingModAction.duration}
+            />
+
+            {/* ═══ BAN/TIMEOUT NOTIFICATION ═══ */}
+            <BanNotification
+                isOpen={showBanNotification}
+                onClose={() => setShowBanNotification(false)}
+                banInfo={currentBanInfo}
+            />
         </div>
     );
 };
