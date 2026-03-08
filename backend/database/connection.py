@@ -169,9 +169,14 @@ def run_schema_migrations():
                 ("studio_bg_url", "VARCHAR(500)"),
                 ("is_live", "BOOLEAN DEFAULT False NOT NULL"),
                 ("is_staging", "BOOLEAN DEFAULT False NOT NULL"),
+                ("is_staging", "BOOLEAN DEFAULT False NOT NULL"),
                 ("viewer_count", "INTEGER DEFAULT 0"),
                 ("tier", "INTEGER DEFAULT 1"),
-                ("permissions", "TEXT")
+                ("permissions", "TEXT"),
+                # Admin fields
+                ("is_admin", "BOOLEAN DEFAULT False NOT NULL"),
+                ("upload_banned", "BOOLEAN DEFAULT False NOT NULL"),
+                ("upload_ban_reason", "TEXT"),
             ]
             
             for col_name, col_def in user_columns:
