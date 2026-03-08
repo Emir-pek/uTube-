@@ -87,7 +87,7 @@ const WatchLaterView = () => {
                                 {/* Overlay Play Indicator */}
                                 {videos.length > 0 && (
                                     <Link
-                                        to={`/video/${videos[0].id}?list=watch-later`}
+                                        to={`/video/${videos[0].id}?list=watch_later`}
                                         className="absolute inset-0 z-30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/40 group"
                                     >
                                         <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -117,7 +117,7 @@ const WatchLaterView = () => {
                                 {videos.length > 0 && (
                                     <div className="flex gap-4 mt-auto">
                                         <Link
-                                            to={`/video/${videos[0].id}?list=watch-later`}
+                                            to={`/video/${videos[0].id}?list=watch_later`}
                                             className="px-8 py-3 bg-red-600 hover:bg-red-500 rounded-full font-bold text-white transition-all shadow-lg shadow-red-600/20 flex items-center gap-2 hover:scale-105"
                                         >
                                             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -176,7 +176,7 @@ const WatchLaterView = () => {
                                             </span>
 
                                             {/* Thumbnail */}
-                                            <Link to={`/video/${video.id}?list=watch-later&index=${index}`} className="relative h-24 sm:w-40 sm:h-[90px] rounded-lg overflow-hidden shrink-0 w-full bg-[#111]">
+                                            <Link to={`/video/${video.id}?list=watch_later&index=${index}`} className="relative h-24 sm:w-40 sm:h-[90px] rounded-lg overflow-hidden shrink-0 w-full bg-[#111]">
                                                 <img
                                                     src={video.thumbnail_url}
                                                     alt={video.title}
@@ -191,7 +191,7 @@ const WatchLaterView = () => {
 
                                             {/* Details */}
                                             <div className="flex-1 min-w-0 flex flex-col py-1">
-                                                <Link to={`/video/${video.id}?list=watch-later&index=${index}`}>
+                                                <Link to={`/video/${video.id}?list=watch_later&index=${index}`}>
                                                     <h3 className="text-base font-semibold line-clamp-2 leading-tight mb-1 group-hover:text-blue-400 transition-colors">
                                                         {video.title}
                                                     </h3>
