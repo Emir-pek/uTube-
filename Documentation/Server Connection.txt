@@ -36,3 +36,19 @@ Nginx
 proxy_set_header Upgrade $http_upgrade;
 proxy_set_header Connection "upgrade";
 Bunu yaptığımız an, uTube senin sunucunda gerçek zamanlı bir dev haline gelecek. Yani sen yayını açtığında, dünyanın öbür ucundaki biri gelip senin yayınına chat'ten "ZBABOOO" yazabilecek! 🌍💬
+
+pm2 logs utube-backend --lines 50
+
+# Bütün güncel haritayı GitHub'dan indir
+git fetch origin
+
+# Ana dala (main) geç
+git checkout main
+
+# Sunucudaki kodları, GitHub'daki main branch'inin EN SON haliyle ez (Kusursuz eşitleme)
+git reset --hard origin/main
+
+cd frontend
+npm install
+npm run build
+cd ..
