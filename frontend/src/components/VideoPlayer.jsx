@@ -137,15 +137,16 @@ const VideoPlayer = ({ src, poster, onError, availableResolutions, transcodeStat
 
     const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-    // ── Fixed Quality Options per User Request ──
+    // ── Dynamic Quality Options from Backend ──
     const QUALITIES = React.useMemo(() => {
         const base = ['Auto'];
-        const requested = [1080, 720, 480, 144];
-
-        // If we have actual resolutions from backend, we map them.
-        // Even if some are missing, we show the requested list as fixed items.
-        return [...base, ...requested.map(q => `${q}p`)];
-    }, []);
+        if (availableResolutions) {
+            const order = ['1080p', '720p', '480p', '360p', '144p'];
+            const available = order.filter(q => availableResolutions[q]);
+            return [...base, ...available];
+        }
+        return base;
+    }, [availableResolutions]);
 
     const IDLE_DELAY_MS = 2500;
     const settingsMenuClosedRef = useRef(true);
@@ -310,10 +311,9 @@ const VideoPlayer = ({ src, poster, onError, availableResolutions, transcodeStat
     const changeQuality = (q) => {
         setQuality(q); setSettingsMenuState('closed');
         let newSrc = src;
-        const cleanQ = q.replace('p', '');
-        if (q !== 'Auto' && availableResolutions && availableResolutions[cleanQ]) {
+        if (q !== 'Auto' && availableResolutions && availableResolutions[q]) {
             const mediaBase = import.meta.env.VITE_MEDIA_BASE_URL || '';
-            const resPath = availableResolutions[cleanQ];
+            const resPath = availableResolutions[q];
             newSrc = resPath.startsWith('http') ? resPath : `${mediaBase}${resPath}`;
         }
 
@@ -321,15 +321,32 @@ const VideoPlayer = ({ src, poster, onError, availableResolutions, transcodeStat
         const currentSrc = v.currentSrc || v.src || '';
         if (currentSrc.endsWith(newSrc) || currentSrc === newSrc) return;
 
+        // 1. Save current state
         const savedTime = v.currentTime;
         const wasPlaying = !v.paused;
-        v.src = newSrc; v.load();
+
+        // 2. Clear old state slightly to improve transition feel
+        setBuffering(true);
+
+        // 3. Update src and load
+        v.src = newSrc;
+        v.load();
+
+        // 4. Wait for new source to load, then restore time & play state
         const onReady = () => {
-            v.currentTime = savedTime;
-            if (wasPlaying) v.play().catch(() => { });
+            // Remove listeners FIRST to prevent double-fire
             v.removeEventListener('loadedmetadata', onReady);
+            v.removeEventListener('canplay', onReady);
+            v.currentTime = savedTime;
+            if (wasPlaying) {
+                v.play().catch(e => console.warn("Auto-resume playback failed:", e));
+            }
+            setBuffering(false);
         };
+
+        // Using both loadedmetadata and canplay for broad browser compatibility
         v.addEventListener('loadedmetadata', onReady);
+        v.addEventListener('canplay', onReady);
     };
 
     const getSeekTime = (e) => {
