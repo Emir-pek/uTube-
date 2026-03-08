@@ -88,7 +88,7 @@ def get_recommended_feed(
     if category:
         discovery_query = discovery_query.filter(Video.category != category)
         
-    discovery_videos = discovery_query.order_by(func.random()).limit(limit_discovery).all()
+    discovery_videos = discovery_query.order_by(Video.view_count.desc()).limit(limit_discovery).all()
     recommended_ids.extend([v.id for v in discovery_videos])
     
     # 3. Fill remaining slots if needed (e.g. not enough different categories)

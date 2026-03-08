@@ -82,7 +82,7 @@ const HeroSection = ({ videos }) => {
     const animDuration = `${(baseP / 250).toFixed(1)}s`;
 
     return (
-        <div className="relative w-full max-w-[95%] mx-auto mt-4 rounded-3xl overflow-hidden h-[55vh] bg-black shadow-[0_0_50px_rgba(239,68,68,0.15)] border border-primary/20 transition-all duration-500">
+        <div className="relative w-full max-w-[95%] mx-auto mt-4 rounded-3xl overflow-hidden h-[55vh] bg-black shadow-[0_0_50px_rgba(239,68,68,0.15)] border border-primary/20">
 
             {/* ── TOP-LEFT: Trending Badge (fixed, above motion layer) ── */}
             <div className="absolute top-6 left-6 z-30 flex flex-col items-start gap-1.5">
@@ -223,10 +223,12 @@ const HeroSection = ({ videos }) => {
 
                     {/* LEFT: content */}
                     {/* Increased width percentage to push the video further right */}
-                    <div className="w-1/2 md:w-[60%] relative flex flex-col justify-end p-8 md:p-12 z-20 pointer-events-auto">
-
+                    <div
+                        className="w-1/2 md:w-[60%] relative flex flex-col p-8 md:p-12 z-20 pointer-events-auto"
+                        onPointerDown={(e) => e.stopPropagation()}
+                    >
                         {/* Text content */}
-                        <div className="relative pt-10">
+                        <div className="relative mt-auto">
                             {/* Animated title — typewriter */}
                             <TypewriterTitle text={currentVideo.title} />
 

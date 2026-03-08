@@ -209,7 +209,7 @@ export const VideoMenu = ({ video, onHide }) => {
             {/* Three-dot trigger */}
             <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(v => !v); }}
-                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/15 transition-all text-white/50 hover:text-white"
+                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/15 transition-colors text-white/50 hover:text-white"
                 title="More options"
             >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -280,7 +280,7 @@ export const VideoCard = ({ video, onHide, isSessionBlocked, isListLayout = fals
 
     if (isSessionBlocked) {
         return (
-            <motion.div className="relative group rounded-xl overflow-hidden aspect-video bg-white/5 border border-white/10" layout>
+            <motion.div className="relative group rounded-xl overflow-hidden aspect-video bg-white/5 border border-white/10">
                 {/* Heavily Blurred Background Thumbnail */}
                 <div className="absolute inset-0 z-0">
                     <img
@@ -313,7 +313,6 @@ export const VideoCard = ({ video, onHide, isSessionBlocked, isListLayout = fals
     return (
         <motion.div
             className={`group/card cursor-pointer relative flex ${isListLayout ? 'flex-col sm:flex-row gap-4' : 'flex-col'}`}
-            layout
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
         >
@@ -333,7 +332,7 @@ export const VideoCard = ({ video, onHide, isSessionBlocked, isListLayout = fals
             <Link to={`/video/${video.id}`} className={`block relative z-0 group-hover/card:z-10 shrink-0 ${isListLayout ? 'w-full sm:w-[360px] md:w-[400px]' : ''}`}>
 
                 <div
-                    className={`relative aspect-video rounded-xl overflow-hidden transition-all duration-300 group-hover/card:scale-105 group-hover/card:shadow-[0_10px_30px_rgba(0,0,0,0.5)] ${isListLayout ? '' : 'mb-3'}`}
+                    className={`relative aspect-video rounded-xl overflow-hidden transition-[transform,box-shadow] duration-300 group-hover/card:scale-105 group-hover/card:shadow-[0_10px_30px_rgba(0,0,0,0.5)] ${isListLayout ? '' : 'mb-3'}`}
                     style={isHovered && dominantColor !== 'transparent' ? { boxShadow: `0 10px 40px ${dominantColor}66` } : {}}
                 >
                     <img
