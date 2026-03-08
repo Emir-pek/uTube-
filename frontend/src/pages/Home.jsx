@@ -89,26 +89,28 @@ const Home = () => {
     }, [searchQuery]);
 
     // Apply global channel and video block filters first
-    const visibleVideos = videos.filter(v =>
+    const visibleVideos = React.useMemo(() => videos.filter(v =>
         !blockedChannels.has(v.author?.id) &&
         !blockedVideos.some(bv => bv.id === v.id)
-    );
+    ), [videos, blockedChannels, blockedVideos]);
 
-    const visibleLiveStreams = liveStreams.filter(stream =>
+    const visibleLiveStreams = React.useMemo(() => liveStreams.filter(stream =>
         !blockedChannels.has(stream.id) &&
         !blockedVideos.some(bv => bv.id === stream.id)
-    );
+    ), [liveStreams, blockedChannels, blockedVideos]);
 
-    const visibleTrendingVideos = trendingVideos.filter(v =>
+    const visibleTrendingVideos = React.useMemo(() => trendingVideos.filter(v =>
         !blockedChannels.has(v.author?.id) &&
         !blockedVideos.some(bv => bv.id === v.id)
-    );
+    ), [trendingVideos, blockedChannels, blockedVideos]);
 
-    const visibleChannels = channels.filter(c => !blockedChannels.has(c.id));
+    const visibleChannels = React.useMemo(() => channels.filter(c => !blockedChannels.has(c.id)), [channels, blockedChannels]);
 
-    const filteredVideos = selectedCategory === "All"
-        ? visibleVideos
-        : visibleVideos.filter(video => video.category === selectedCategory);
+    const filteredVideos = React.useMemo(() => (
+        selectedCategory === "All"
+            ? visibleVideos
+            : visibleVideos.filter(video => video.category === selectedCategory)
+    ), [selectedCategory, visibleVideos]);
 
     return (
         <div className="min-h-screen pt-16 sm:pt-20">
@@ -116,7 +118,6 @@ const Home = () => {
                 <div
                     style={{
                         opacity: heroOpacity,
-                        transition: 'opacity 0.3s ease-out',
                         pointerEvents: heroOpacity === 0 ? 'none' : 'auto',
                     }}
                 >

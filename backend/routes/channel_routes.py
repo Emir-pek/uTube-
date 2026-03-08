@@ -33,6 +33,7 @@ class ChannelResponse(BaseModel):
     username: str
     avatar_url: Optional[str] = None
     banner_url: Optional[str] = None
+    channel_description: Optional[str] = None
     subscriber_count: int = 0
     videos: List[dict] = []
 
@@ -90,6 +91,7 @@ def get_channel(user_id: int, db: Session = Depends(get_db)):
         username=user.username,
         avatar_url=user.profile_image,
         banner_url=user.channel_banner_url,
+        channel_description=user.channel_description,
         subscriber_count=subscriber_count,
         videos=videos_data,
     )

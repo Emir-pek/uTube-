@@ -16,6 +16,8 @@ import ModerationDashboard from './pages/ModerationDashboard';
 import BlockedVideos from './pages/BlockedVideos';
 import MyChannel from './pages/MyChannel';
 import Channel from './pages/Channel';
+import AdminPanel from './pages/AdminPanel';
+import Notifications from './pages/Notifications';
 import { UTUBE_TOKEN } from './utils/authConstants'
 import { SidebarProvider, useSidebar } from './context/SidebarContext';
 
@@ -94,6 +96,8 @@ const AppLayout = () => {
                     <Route path="/blocked" element={<ProtectedRoute><BlockedVideos /></ProtectedRoute>} />
                     <Route path="/my-channel" element={<ProtectedRoute><MyChannel /></ProtectedRoute>} />
                     <Route path="/channel/:id" element={<Channel />} />
+                    <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+                    <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
                 </Routes>
             </main>
         </div>

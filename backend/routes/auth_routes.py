@@ -122,6 +122,7 @@ class Token(BaseModel):
     token_type: str = "bearer"
     user_id: int
     username: str
+    is_admin: bool = False
 
 
 class UserResponse(BaseModel):
@@ -132,7 +133,11 @@ class UserResponse(BaseModel):
     profile_image: Optional[str] = None
     channel_description: Optional[str] = None
     channel_banner_url: Optional[str] = None
+    banner_position: Optional[int] = 50
     is_verified: bool = False
+    is_admin: bool = False
+    upload_banned: bool = False
+    upload_ban_reason: Optional[str] = None
     stream_title: Optional[str] = None
     stream_category: Optional[str] = None
     stream_thumbnail: Optional[str] = None
@@ -402,7 +407,8 @@ def verify_email(data: VerifyEmailRequest, db: Session = Depends(get_db)):
     return Token(
         access_token=access_token,
         user_id=user.id,
-        username=user.username
+        username=user.username,
+        is_admin=user.is_admin
     )
 
 @router.post("/login", response_model=Token)
@@ -448,7 +454,8 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     return Token(
         access_token=access_token,
         user_id=user.id,
-        username=user.username
+        username=user.username,
+        is_admin=user.is_admin
     )
 
 
@@ -638,10 +645,14 @@ def build_user_response(user: User, db: Session) -> UserResponse:
         profile_image=user.profile_image,
         channel_description=user.channel_description,
         channel_banner_url=user.channel_banner_url,
+        banner_position=user.banner_position if user.banner_position is not None else 50,
         is_verified=user.is_verified,
+        is_admin=bool(user.is_admin),
+        upload_banned=bool(user.upload_banned),
+        upload_ban_reason=user.upload_ban_reason,
         stream_title=user.stream_title,
         stream_category=user.stream_category,
-        created_at=user.created_at.isoformat() + "Z",
+        created_at=user.created_at.isoformat(),
         subscriber_count=subscriber_count,
         video_count=video_count,
         total_views=total_views,
@@ -834,6 +845,7 @@ def update_user_profile(
 def update_channel_profile(
     description: Optional[str] = Form(None),
     banner_image: Optional[UploadFile] = File(None),
+    banner_position: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -844,7 +856,11 @@ def update_channel_profile(
     if description is not None:
         current_user.channel_description = description.strip()
 
-    # 2. Update Banner Image
+    # 2. Update Banner Position
+    if banner_position is not None:
+        current_user.banner_position = max(0, min(100, banner_position))
+
+    # 3. Update Banner Image
     if banner_image:
         # Validate file type (basic)
         content_type = banner_image.content_type

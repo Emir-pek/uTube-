@@ -9,8 +9,7 @@ const categories = [
     "Music",
     "Entertainment",
     "Sports",
-    "News",
-    "Other"
+    "News"
 ];
 
 const CategoryBar = ({ selectedCategory, onSelectCategory }) => {

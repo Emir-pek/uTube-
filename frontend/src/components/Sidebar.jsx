@@ -33,7 +33,7 @@ const timeAgo = (dateStr) => {
 
 // ── Section Header — matches the navbar dropdown label style  ──
 const SectionHeader = ({ icon, title, tag }) => (
-    <div className="flex items-center justify-between px-4 pt-5 pb-2.5">
+    <div className="flex items-center justify-between px-4 pt-2 pb-1.5">
         <div className="flex items-center gap-2">
             <span className="w-1 h-1 bg-primary rounded-full" />
             <span className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-1.5">
@@ -265,19 +265,29 @@ const Sidebar = () => {
     // Fetch when sidebar opens
     useEffect(() => {
         if (!isSidebarOpen || !user) return;
-        setLoading({ subs: true, history: true, liked: true });
-
-        ApiClient.get('/feed/subscriptions', { params: { limit: 8 } })
-            .then(r => setSubs(r.data))
-            .catch(() => setSubs([]))
-            .finally(() => setLoading(p => ({ ...p, subs: false })));
+        setLoading(p => ({ ...p, history: true }));
 
         ApiClient.get('/videos/history', { params: { limit: 8 } })
             .then(r => setHistory(Array.isArray(r.data) ? r.data : r.data?.videos || []))
             .catch(() => setHistory([]))
             .finally(() => setLoading(p => ({ ...p, history: false })));
 
-        ApiClient.get('/videos/liked', { params: { limit: 8 } })
+        // Fetch sub count for badge
+        ApiClient.get('/feed/subscriptions', { params: { limit: 100 } })
+            .then(r => {
+                const seen = new Set();
+                const unique = (Array.isArray(r.data) ? r.data : []).filter(v => {
+                    const id = v.author?.id;
+                    if (!id || seen.has(id)) return false;
+                    seen.add(id);
+                    return true;
+                });
+                setSubs(unique);
+            })
+            .catch(() => setSubs([]))
+            .finally(() => setLoading(p => ({ ...p, subs: false })));
+
+        ApiClient.get('/videos/liked', { params: { limit: 100 } })
             .then(r => setLiked(Array.isArray(r.data) ? r.data : r.data?.videos || []))
             .catch(() => setLiked([]))
             .finally(() => setLoading(p => ({ ...p, liked: false })));
@@ -352,16 +362,33 @@ const Sidebar = () => {
                         WebkitBackdropFilter: 'blur(30px)',
                     }}
                 >
-                    {/* Top gradient accent — matches the site's red-black radial theme */}
+                    {/* Top gradient accent */}
                     <div
-                        className="absolute top-0 left-0 right-0 h-32 pointer-events-none"
-                        style={{
-                            background: 'radial-gradient(ellipse at 50% 0%, rgba(139,0,0,0.18) 0%, transparent 70%)',
-                        }}
+                        className="absolute top-0 left-0 right-0 h-32 pointer-events-none z-0"
+                        style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(139,0,0,0.18) 0%, transparent 70%)' }}
                     />
 
-                    {/* Scrollable content */}
-                    <div className="flex-1 overflow-y-auto sidebar-scroll py-2 pb-10 relative">
+                    {/* Scrollable content (pulled up via negative margin to occupy navbar space) */}
+                    <div className="flex-1 overflow-y-auto sidebar-scroll pb-10 relative z-10 -mt-14 pt-4">
+
+                        {/* ── Logo ── (Now scrolls with content) */}
+                        <div className="flex justify-center pb-8 pt-2 relative shrink-0">
+                            {/* Rotating Red LED Glow */}
+                            <motion.div
+                                animate={{ opacity: [0.3, 0.7, 0.3], scale: [0.9, 1.1, 0.9], rotate: 360 }}
+                                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-20 bg-primary/20 blur-xl rounded-full pointer-events-none"
+                            />
+                            <Link to="/" onClick={handleSidebarLeave} className="flex items-center gap-2 group relative z-10">
+                                {/* Static Logo with hover tilt */}
+                                <motion.div
+                                    whileHover={{ rotate: -10, scale: 1.1 }}
+                                    className="w-16 sm:w-20"
+                                >
+                                    <img src="/utube.png" alt="uTube" className="w-full h-auto object-contain drop-shadow-[0_0_15px_rgba(255,0,0,0.8)]" />
+                                </motion.div>
+                            </Link>
+                        </div>
 
                         {/* ── Subscriptions ── */}
                         <SectionHeader
@@ -376,19 +403,26 @@ const Sidebar = () => {
 
                         {!user ? (
                             <SignInPlaceholder label="Sign in to see your subscriptions" />
-                        ) : loading.subs ? (
-                            [...Array(4)].map((_, i) => <SkeletonChannel key={i} />)
-                        ) : channels.length > 0 ? (
-                            channels.map(v => (
-                                <ChannelItem
-                                    key={v.author?.id}
-                                    channel={v}
-                                    onAction={handleUnsubscribe}
-                                    actionTitle="Unsubscribe"
-                                />
-                            ))
                         ) : (
-                            <EmptyState label="No subscriptions yet" />
+                            <Link
+                                to="/subscriptions"
+                                className="flex items-center gap-3 px-4 py-2 mx-1 rounded-xl hover:bg-white/[0.06] transition-colors group"
+                            >
+                                <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0">
+                                    <svg className="w-4 h-4 text-white/40 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-[11px] font-bold text-white/70 group-hover:text-white transition-colors">Manage Subscriptions</p>
+                                    {subs.length > 0 && (
+                                        <p className="text-[9px] text-white/40">{subs.length} channel{subs.length !== 1 ? 's' : ''}</p>
+                                    )}
+                                </div>
+                                <svg className="w-3 h-3 text-white/0 group-hover:text-white/40 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </Link>
                         )}
 
                         <Divider />
@@ -429,13 +463,28 @@ const Sidebar = () => {
 
                         {!user ? (
                             <SignInPlaceholder label="Sign in to see your liked videos" />
-                        ) : loading.liked ? (
-                            [...Array(3)].map((_, i) => <SkeletonVideo key={i} />)
-                        ) : liked.length > 0 ? (
-                            liked.map(v => <VideoItem key={v.id} video={v} />)
                         ) : (
-                            <EmptyState label="No liked videos yet" />
+                            <Link
+                                to="/liked"
+                                className="flex items-center gap-3 px-4 py-2 mx-1 rounded-xl hover:bg-white/[0.06] transition-colors group"
+                            >
+                                <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0">
+                                    <svg className="w-4 h-4 text-white/40 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-[11px] font-bold text-white/70 group-hover:text-white transition-colors">Browse Liked Videos</p>
+                                    {liked.length > 0 && (
+                                        <p className="text-[9px] text-white/40">{liked.length} video{liked.length !== 1 ? 's' : ''}</p>
+                                    )}
+                                </div>
+                                <svg className="w-3 h-3 text-white/0 group-hover:text-white/40 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </Link>
                         )}
+
 
                         <Divider />
 

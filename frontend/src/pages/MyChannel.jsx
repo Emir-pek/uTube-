@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, Link } from 'react-router-dom';
 import { UTUBE_USER } from '../utils/authConstants';
@@ -7,11 +7,99 @@ import ApiClient from '../utils/ApiClient';
 import toast from 'react-hot-toast';
 import DOMPurify from 'dompurify';
 
+// ─── Category Options (shared with Upload page) ─────────────────────────────
+const CATEGORY_OPTIONS = [
+    { value: 'Education', label: 'Education', icon: '🎓' },
+    { value: 'Entertainment', label: 'Entertainment', icon: '🎬' },
+    { value: 'Gaming', label: 'Gaming', icon: '🎮' },
+    { value: 'Music', label: 'Music', icon: '🎵' },
+    { value: 'News', label: 'News', icon: '📰' },
+    { value: 'Sports', label: 'Sports', icon: '🏀' },
+    { value: 'Technology', label: 'Technology', icon: '💻' },
+    { value: 'Vlog', label: 'Vlog', icon: '🤳' },
+    { value: 'Food', label: 'Food', icon: '🍔' },
+    { value: 'Travel', label: 'Travel', icon: '✈️' },
+];
+
+const VISIBILITY_OPTIONS = [
+    {
+        value: 'public', label: 'Public', icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        )
+    },
+    {
+        value: 'unlisted', label: 'Unlisted', icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+        )
+    },
+    {
+        value: 'private', label: 'Private', icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+        )
+    },
+];
+
+// ─── Inline Category Select ─────────────────────────────────────────────────
+const CategorySelect = ({ value, onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const selected = CATEGORY_OPTIONS.find(opt => opt.value === value);
+
+    return (
+        <div className="relative" ref={containerRef}>
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                className={`w-full bg-white/5 border ${isOpen ? 'border-primary/50' : 'border-white/10 hover:border-white/20'} rounded-xl px-4 py-3 cursor-pointer transition-all font-medium flex items-center justify-between`}
+            >
+                <span className={selected ? 'text-white flex items-center gap-2' : 'text-white/40'}>
+                    {selected ? (<><span className="text-lg">{selected.icon}</span>{selected.label}</>) : 'Select Category'}
+                </span>
+                <span className={`text-primary text-xs transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
+            </div>
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute top-full left-0 right-0 mt-1.5 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 max-h-48 overflow-y-auto"
+                    >
+                        {CATEGORY_OPTIONS.map((option) => (
+                            <div
+                                key={option.value}
+                                onClick={() => { onChange(option.value); setIsOpen(false); }}
+                                className="px-4 py-2.5 hover:bg-white/10 cursor-pointer flex items-center gap-2.5 transition-colors text-sm"
+                            >
+                                <span className="text-lg">{option.icon}</span>
+                                <span className="text-white font-medium">{option.label}</span>
+                                {value === option.value && <span className="ml-auto text-primary font-bold">✓</span>}
+                            </div>
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
 // ─── Edit Video Modal ───────────────────────────────────────────────────────
 const EditVideoModal = ({ video, onClose, onSaved }) => {
     const [title, setTitle] = useState(video.title || '');
     const [description, setDescription] = useState(video.description || '');
     const [category, setCategory] = useState(video.category || '');
+    const [visibility, setVisibility] = useState(video.visibility || 'public');
     const [saving, setSaving] = useState(false);
 
     const handleSave = async (e) => {
@@ -23,6 +111,7 @@ const EditVideoModal = ({ video, onClose, onSaved }) => {
                 title: title.trim(),
                 description: description.trim(),
                 category: category.trim() || null,
+                visibility,
             });
             toast.success('Video updated!');
             onSaved(res.data);
@@ -47,7 +136,7 @@ const EditVideoModal = ({ video, onClose, onSaved }) => {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                className="w-full max-w-lg bg-[#111] border border-white/10 rounded-2xl p-6 shadow-2xl"
+                className="w-full max-w-lg bg-[#111] border border-white/10 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 <h2 className="text-xl font-black tracking-tight mb-6 flex items-center gap-2">
@@ -78,19 +167,35 @@ const EditVideoModal = ({ video, onClose, onSaved }) => {
                     </div>
                     <div>
                         <label className="text-xs font-bold text-white/50 uppercase tracking-widest mb-1.5 block">Category</label>
-                        <input
-                            type="text"
-                            value={category}
-                            onChange={(e) => setCategory(e.target.value)}
-                            placeholder="e.g. Education, Gaming, Music"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-primary/50 transition-all font-medium"
-                        />
+                        <CategorySelect value={category} onChange={setCategory} />
                     </div>
+
+                    {/* ── Visibility Toggle ─────────────────────────── */}
+                    <div>
+                        <label className="text-xs font-bold text-white/50 uppercase tracking-widest mb-2 block">Visibility</label>
+                        <div className="flex gap-2">
+                            {VISIBILITY_OPTIONS.map((opt) => (
+                                <button
+                                    key={opt.value}
+                                    type="button"
+                                    onClick={() => setVisibility(opt.value)}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all border ${visibility === opt.value
+                                        ? 'bg-primary/15 border-primary/40 text-white'
+                                        : 'bg-white/5 border-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'
+                                        }`}
+                                >
+                                    {opt.icon}
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     <div className="flex gap-3 pt-2">
                         <button type="button" onClick={onClose} className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl font-bold transition-all">
                             Cancel
                         </button>
-                        <button type="submit" disabled={saving} className="flex-1 py-3 bg-gradient-to-r from-primary to-purple-600 hover:from-primary/80 hover:to-purple-600/80 text-white font-bold rounded-xl shadow-lg transition-all disabled:opacity-50">
+                        <button type="submit" disabled={saving} className="flex-1 py-3 bg-gradient-to-r from-primary to-red-600 hover:from-primary/80 hover:to-red-600/80 text-white font-bold rounded-xl shadow-lg transition-all disabled:opacity-50">
                             {saving ? 'Saving...' : 'Save Changes'}
                         </button>
                     </div>
@@ -105,6 +210,7 @@ const EditChannelModal = ({ user, onClose, onSaved }) => {
     const [description, setDescription] = useState(user?.channel_description || '');
     const [bannerFile, setBannerFile] = useState(null);
     const [previewUrl, setPreviewUrl] = useState('');
+    const [bannerPosition, setBannerPosition] = useState(user?.banner_position ?? 50);
     const [saving, setSaving] = useState(false);
     const [confirmRemove, setConfirmRemove] = useState(false);
     const [removing, setRemoving] = useState(false);
@@ -123,6 +229,7 @@ const EditChannelModal = ({ user, onClose, onSaved }) => {
         try {
             const formData = new FormData();
             formData.append('description', description.trim());
+            formData.append('banner_position', bannerPosition.toString());
             if (bannerFile) {
                 formData.append('banner_image', bannerFile);
             }
@@ -197,6 +304,7 @@ const EditChannelModal = ({ user, onClose, onSaved }) => {
                                     src={DOMPurify.sanitize(previewUrl || currentBannerUrl)}
                                     alt="Banner Preview"
                                     className="w-full h-full object-cover opacity-80 group-hover:opacity-50 transition-opacity"
+                                    style={{ objectPosition: `center ${bannerPosition}%` }}
                                     onError={(e) => { e.target.style.display = 'none'; }}
                                 />
                             ) : (
@@ -226,6 +334,29 @@ const EditChannelModal = ({ user, onClose, onSaved }) => {
                             )}
                         </div>
                         <p className="text-[10px] text-white/40 mt-1.5 ml-1">JPEG, PNG or WEBP. At least 1024x288px recommended.</p>
+
+                        {/* Banner Position Slider */}
+                        {(previewUrl || currentBannerUrl) && (
+                            <div className="mt-3 bg-white/5 border border-white/10 rounded-xl p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest">Focal Point</label>
+                                    <span className="text-[10px] font-mono text-primary font-bold">{bannerPosition}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={100}
+                                    value={bannerPosition}
+                                    onChange={(e) => setBannerPosition(Number(e.target.value))}
+                                    className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(229,9,20,0.5)] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white/30 [&::-webkit-slider-thumb]:cursor-pointer"
+                                />
+                                <div className="flex justify-between text-[9px] text-white/30 mt-1">
+                                    <span>Top</span>
+                                    <span>Center</span>
+                                    <span>Bottom</span>
+                                </div>
+                            </div>
+                        )}
                         {/* Remove Banner Button */}
                         {user?.channel_banner_url && !previewUrl && (
                             <div className="mt-2">
@@ -280,7 +411,7 @@ const EditChannelModal = ({ user, onClose, onSaved }) => {
                         <button type="button" onClick={onClose} className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl font-bold transition-all">
                             Cancel
                         </button>
-                        <button type="submit" disabled={saving} className="flex-1 py-3 bg-gradient-to-r from-primary to-purple-600 hover:from-primary/80 hover:to-purple-600/80 text-white font-bold rounded-xl shadow-lg transition-all disabled:opacity-50">
+                        <button type="submit" disabled={saving} className="flex-1 py-3 bg-gradient-to-r from-primary to-red-600 hover:from-primary/80 hover:to-red-600/80 text-white font-bold rounded-xl shadow-lg transition-all disabled:opacity-50">
                             {saving ? 'Saving...' : 'Save Changes'}
                         </button>
                     </div>
@@ -388,11 +519,6 @@ const VideoCard = ({ video, onEdit, onDelete }) => {
                         {formatDuration(video.duration)}
                     </span>
                 )}
-                {/* Visibility badge */}
-                <span className={`absolute top-2 left-2 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border backdrop-blur-sm ${video.visibility === 'private' ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' : video.visibility === 'unlisted' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}>
-                    {visibilityIcons[video.visibility] || visibilityIcons.public}
-                    {video.visibility}
-                </span>
             </Link>
 
             {/* Info */}
@@ -403,12 +529,15 @@ const VideoCard = ({ video, onEdit, onDelete }) => {
                     </h3>
                 </Link>
 
-                <div className="flex items-center gap-3 text-[11px] text-white/40 mb-3">
-                    <span>{video.view_count?.toLocaleString()} views</span>
-                    <span>•</span>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/40 mb-3">
+                    <span className={`flex items-center gap-1 font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border text-[10px] ${video.visibility === 'private' ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' : video.visibility === 'unlisted' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}>
+                        {visibilityIcons[video.visibility] || visibilityIcons.public}
+                        {video.visibility}
+                    </span>
                     <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border text-[10px] ${statusColors[video.status] || statusColors.processing}`}>
                         {video.status}
                     </span>
+                    <span>{video.view_count?.toLocaleString()} views</span>
                     {video.category && (
                         <>
                             <span>•</span>
@@ -501,7 +630,7 @@ const MyChannel = () => {
     const handleVideoSaved = (updatedVideo) => {
         setVideos(prev => prev.map(v =>
             v.id === updatedVideo.id
-                ? { ...v, title: updatedVideo.title, description: updatedVideo.description, category: updatedVideo.category }
+                ? { ...v, ...updatedVideo }
                 : v
         ));
     };
@@ -530,103 +659,115 @@ const MyChannel = () => {
     const publishedCount = videos.filter(v => v.status === 'published').length;
 
     return (
-        <div className="min-h-screen pt-24 pb-16 px-4 md:px-8 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-900 via-black to-black text-white">
+        <div className="min-h-screen pt-24 pb-16 px-4 md:px-8 text-white">
             <div className="max-w-6xl mx-auto">
 
                 {/* ─── Channel Header ─────────────────────────────────────── */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5 }}
-                    className="relative rounded-3xl overflow-hidden mb-10"
-                >
+                <div className="mb-12">
                     {/* Banner Image or Fallback Gradient */}
-                    <div className="h-40 md:h-64 bg-gradient-to-r from-primary/30 via-purple-600/20 to-primary/10 relative">
-                        {user.channel_banner_url ? (
-                            <img
-                                src={DOMPurify.sanitize(getValidUrl(`/storage/uploads/banners/${user.channel_banner_url}`))}
-                                alt={`${user.username}'s banner`}
-                                className="w-full h-full object-cover"
-                                onError={(e) => { e.target.style.display = 'none'; }}
-                            />
-                        ) : (
-                            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg2MHY2MEgweiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjMwIiBjeT0iMzAiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZykiLz48L3N2Zz4=')] opacity-50" />
-                        )}
-                    </div>
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="h-48 md:h-72 w-full rounded-3xl overflow-hidden relative p-[2px] z-0"
+                    >
+                        {/* Spinning LED Border Effect */}
+                        <div className="absolute inset-[-100%] animate-[spin_4s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#00000000_50%,#ff0000_100%)]" />
 
-                    {/* Profile info overlaid */}
-                    <div className="glass border border-white/10 rounded-3xl p-6 md:p-8 -mt-16 mx-4 md:mx-8 relative z-10">
-                        <div className="flex flex-col md:flex-row items-center md:items-end gap-6">
-                            {/* Avatar */}
-                            <motion.div
-                                whileHover={{ scale: 1.05 }}
-                                className="w-28 h-28 md:w-32 md:h-32 rounded-full p-1 bg-gradient-to-br from-primary to-purple-600 shadow-2xl shadow-primary/20 -mt-20 md:-mt-24 shrink-0"
-                            >
-                                <div className="w-full h-full rounded-full overflow-hidden border-4 border-[#111] bg-black">
-                                    <img
-                                        src={DOMPurify.sanitize(getAvatarUrl(user.profile_image, user.username))}
-                                        alt={user.username}
-                                        className="w-full h-full object-cover"
-                                    />
-                                </div>
-                            </motion.div>
+                        <div className="absolute inset-[2px] rounded-[calc(1.5rem-2px)] overflow-hidden bg-gradient-to-r from-primary/30 via-red-600/20 to-primary/10">
+                            {user.channel_banner_url ? (
+                                <img
+                                    src={DOMPurify.sanitize(getValidUrl(`/storage/uploads/banners/${user.channel_banner_url}`))}
+                                    alt={`${user.username}'s banner`}
+                                    className="w-full h-full object-cover relative z-10"
+                                    style={{
+                                        objectPosition: `center ${user.banner_position ?? 50}%`,
+                                        imageRendering: '-webkit-optimize-contrast',
+                                        transform: 'translateZ(0)',
+                                        backfaceVisibility: 'hidden'
+                                    }}
+                                    onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                            ) : (
+                                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg2MHY2MEgweiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjMwIiBjeT0iMzAiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZykiLz48L3N2Zz4=')] opacity-50 relative z-10" />
+                            )}
 
-                            {/* Name + stats */}
-                            <div className="flex-1 text-center md:text-left">
-                                <h1 className="text-3xl md:text-4xl font-black tracking-tight">{user.username}</h1>
-                                <p className="text-white/50 text-sm mt-1">@{user.username}</p>
-                                <div className="flex items-center gap-6 mt-3 justify-center md:justify-start">
-                                    <div className="text-center">
-                                        <p className="text-lg font-black">{user.subscriber_count ?? 0}</p>
-                                        <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Subscribers</p>
-                                    </div>
-                                    <div className="w-px h-8 bg-white/10" />
-                                    <div className="text-center">
-                                        <p className="text-lg font-black">{videos.length}</p>
-                                        <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Videos</p>
-                                    </div>
-                                    <div className="w-px h-8 bg-white/10" />
-                                    <div className="text-center">
-                                        <p className="text-lg font-black">{(user.total_views ?? 0).toLocaleString()}</p>
-                                        <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Total Views</p>
-                                    </div>
-                                </div>
-                                {user.channel_description && (
-                                    <div className="mt-4 text-white/70 text-sm max-w-2xl mx-auto md:mx-0 whitespace-pre-wrap leading-relaxed">
-                                        {user.channel_description}
-                                    </div>
-                                )}
+                            {/* Inner glow to make the LED pop */}
+                            <div className="absolute inset-0 shadow-[inset_0_0_20px_rgba(255,0,0,0.2)] pointer-events-none z-20" />
+                        </div>
+                    </motion.div>
+
+                    {/* Profile Info (Framed container) */}
+                    <div className="mx-0 md:mx-4 flex flex-col md:flex-row items-center md:items-start gap-6 relative z-10 bg-white/[0.03] border border-white/10 rounded-3xl p-6 md:p-8 mt-2 shadow-2xl backdrop-blur-sm">
+                        {/* Avatar, overlaps banner slightly */}
+                        <motion.div
+                            whileHover={{ scale: 1.05 }}
+                            className="w-32 h-32 md:w-40 md:h-40 rounded-full p-1.5 bg-[#111] shadow-xl -mt-20 md:-mt-24 md:-ml-2 shrink-0 relative z-20"
+                        >
+                            <div className="w-full h-full rounded-full overflow-hidden bg-black">
+                                <img
+                                    src={DOMPurify.sanitize(getAvatarUrl(user.profile_image, user.username))}
+                                    alt={user.username}
+                                    className="w-full h-full object-cover"
+                                />
+                            </div>
+                        </motion.div>
+
+                        {/* Name + Stats */}
+                        <div className="flex-1 min-w-0 text-center md:text-left mt-2 border-b border-white/5 pb-8 md:border-none md:pb-0">
+                            <h1 className="text-3xl md:text-4xl font-black tracking-tight truncate">{user.username}</h1>
+
+                            <div className="flex flex-wrap items-center gap-2 mt-2 justify-center md:justify-start text-white/70 text-sm">
+                                <span className="text-white font-medium">@{user.username}</span>
+                                <span className="text-white/30">•</span>
+                                <span>{user.subscriber_count ?? 0} subscriber{(user.subscriber_count ?? 0) !== 1 ? 's' : ''}</span>
+                                <span className="text-white/30">•</span>
+                                <span>{videos.length} video{videos.length !== 1 ? 's' : ''}</span>
+                                <span className="text-white/30">•</span>
+                                <span>{(user.total_views ?? 0).toLocaleString()} view{(user.total_views ?? 0) !== 1 ? 's' : ''}</span>
                             </div>
 
-                            {/* Actions */}
-                            <div className="flex gap-3 shrink-0">
+                            {user.channel_description && (
+                                <div className="mt-4 text-white/70 text-sm max-w-[calc(100vw-32px)] md:max-w-3xl mx-auto md:mx-0 whitespace-pre-wrap leading-relaxed relative group cursor-pointer break-words">
+                                    <div className="line-clamp-2 md:line-clamp-3 group-hover:line-clamp-none transition-all duration-300">
+                                        {user.channel_description}
+                                    </div>
+                                    <div className="mt-1 text-white/40 group-hover:opacity-0 transition-opacity duration-300 text-xs font-bold uppercase tracking-wider flex items-center gap-1 justify-center md:justify-start">
+                                        <span>Show more</span>
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-3 shrink-0 mt-4 md:mt-2 w-full md:w-auto justify-center md:justify-end">
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => setShowChannelEdit(true)}
+                                className="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                Edit Channel
+                            </motion.button>
+                            <Link to="/upload" className="w-full sm:w-auto">
                                 <motion.button
                                     whileHover={{ scale: 1.05 }}
                                     whileTap={{ scale: 0.95 }}
-                                    onClick={() => setShowChannelEdit(true)}
-                                    className="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl font-bold text-sm transition-all flex items-center gap-2"
+                                    className="w-full px-5 py-2.5 bg-gradient-to-r from-primary to-red-600 hover:from-primary/80 hover:to-red-600/80 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2"
                                 >
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                     </svg>
-                                    Edit Channel
+                                    Upload
                                 </motion.button>
-                                <Link to="/upload">
-                                    <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        className="px-5 py-2.5 bg-gradient-to-r from-primary to-red-600 hover:from-primary/80 hover:to-red-600/80 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                        </svg>
-                                        Upload
-                                    </motion.button>
-                                </Link>
-                            </div>
+                            </Link>
                         </div>
                     </div>
-                </motion.div>
+                </div>
 
 
                 {/* ─── Video Stats Bar ────────────────────────────────────── */}
@@ -698,7 +839,7 @@ const MyChannel = () => {
                             <motion.button
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
-                                className="px-8 py-3 bg-gradient-to-r from-primary to-purple-600 rounded-xl font-bold text-sm shadow-lg shadow-primary/20"
+                                className="px-8 py-3 bg-gradient-to-r from-primary to-red-600 rounded-xl font-bold text-sm shadow-lg shadow-primary/20"
                             >
                                 Upload Your First Video
                             </motion.button>

@@ -6,7 +6,7 @@ import { UTUBE_USER } from '../utils/authConstants';
 import { getMediaUrl, THUMBNAIL_FALLBACK } from '../utils/urlHelper';
 
 // ─── Mini bar chart component ──────────────────────────────────────────────
-const MiniBar = ({ value, max, color = 'var(--gold)' }) => {
+const MiniBar = ({ value, max, color = 'var(--accent)' }) => {
     const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
     return (
         <div className="relative h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
@@ -150,7 +150,7 @@ const Dashboard = () => {
             {/* ── Header ── */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
                 <div>
-                    <p className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: 'var(--gold)' }}>
+                    <p className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: 'var(--accent)' }}>
                         Creator Studio
                     </p>
                     <h1 className="text-3xl md:text-4xl font-black tracking-tight">
@@ -161,7 +161,7 @@ const Dashboard = () => {
                 <div className="flex gap-3">
                     <Link to="/upload">
                         <button
-                            style={{ background: 'var(--gold)', boxShadow: '0 0 20px var(--gold-glow)' }}
+                            style={{ background: 'var(--accent)', boxShadow: '0 0 20px var(--accent-glow)' }}
                             className="px-5 py-2.5 rounded-xl text-black font-black text-sm flex items-center gap-2 hover:brightness-110 transition-all active:scale-95"
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -184,7 +184,7 @@ const Dashboard = () => {
                     label="Total Views"
                     value={(user?.total_views || 0).toLocaleString()}
                     icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>}
-                    color="var(--gold)"
+                    color="var(--accent)"
                     delay={0}
                 />
                 <StatCard
@@ -219,7 +219,7 @@ const Dashboard = () => {
             >
                 <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
                     <h2 className="font-black text-lg tracking-tight flex items-center gap-2">
-                        <span className="w-1 h-5 rounded-full" style={{ background: 'var(--gold)' }} />
+                        <span className="w-1 h-5 rounded-full" style={{ background: 'var(--accent)' }} />
                         Your Videos
                     </h2>
                     <span className="text-white/30 text-xs font-bold">{videos.length} total</span>
@@ -228,7 +228,7 @@ const Dashboard = () => {
                 {sortedVideos.length === 0 ? (
                     <div className="py-20 text-center">
                         <p className="text-white/20 font-bold">No videos yet.</p>
-                        <Link to="/upload" className="text-sm mt-2 inline-block font-bold" style={{ color: 'var(--gold)' }}>
+                        <Link to="/upload" className="text-sm mt-2 inline-block font-bold" style={{ color: 'var(--accent)' }}>
                             Upload your first video →
                         </Link>
                     </div>
@@ -281,7 +281,7 @@ const Dashboard = () => {
                                                     />
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <p className="font-bold text-sm line-clamp-2 leading-snug group-hover:text-[var(--gold)] transition-colors">
+                                                    <p className="font-bold text-sm line-clamp-2 leading-snug group-hover:text-[var(--accent)] transition-colors">
                                                         {video.title}
                                                     </p>
                                                     {video.category && (
@@ -294,7 +294,7 @@ const Dashboard = () => {
                                         {/* Views */}
                                         <td className="px-4 py-4">
                                             <p className="font-bold mb-1">{(video.view_count || 0).toLocaleString()}</p>
-                                            <MiniBar value={video.view_count || 0} max={maxViews} color="var(--gold)" />
+                                            <MiniBar value={video.view_count || 0} max={maxViews} color="var(--accent)" />
                                         </td>
 
                                         {/* Likes */}
@@ -354,7 +354,7 @@ const Dashboard = () => {
                     {/* Top by views */}
                     <div className="glass rounded-2xl border border-white/5 p-6">
                         <h3 className="font-black mb-4 flex items-center gap-2">
-                            <svg className="w-4 h-4" style={{ color: 'var(--gold)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4" style={{ color: 'var(--accent)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                             </svg>
                             Top Videos by Views
@@ -364,11 +364,11 @@ const Dashboard = () => {
                                 <Link key={v.id} to={`/video/${v.id}`} className="flex items-center gap-3 group">
                                     <span
                                         className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0"
-                                        style={{ background: i === 0 ? 'var(--gold)' : 'rgba(255,255,255,0.08)', color: i === 0 ? 'black' : 'rgba(255,255,255,0.4)' }}
+                                        style={{ background: i === 0 ? 'var(--accent)' : 'rgba(255,255,255,0.08)', color: i === 0 ? 'black' : 'rgba(255,255,255,0.4)' }}
                                     >
                                         {i + 1}
                                     </span>
-                                    <p className="text-sm font-bold truncate flex-1 group-hover:text-[var(--gold)] transition-colors">{v.title}</p>
+                                    <p className="text-sm font-bold truncate flex-1 group-hover:text-[var(--accent)] transition-colors">{v.title}</p>
                                     <span className="text-white/40 text-xs font-bold shrink-0">{(v.view_count || 0).toLocaleString()}</span>
                                 </Link>
                             ))}

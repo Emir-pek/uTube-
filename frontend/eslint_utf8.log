@@ -1,0 +1,49 @@
+﻿node.exe : 
+At line:1 char:1
++ & "C:\Program Files\n
+odejs/node.exe" "C:\Pro
+gram Files\nodejs/node_
+mo ...
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (:String) [],    
+ RemoteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+Oops! Something went wr
+ong! :(
+
+ESLint: 8.57.1
+
+ESLint couldn't find a 
+configuration file. To 
+set up a configuration 
+file for this project, 
+please run:
+
+    npm init @eslint/co
+nfig
+
+ESLint looked for confi
+guration files in C:\Us
+ers\akaia\Desktop\GitHU
+B\uTube\frontend\src\ut
+ils and its ancestors. 
+If it found none, it th
+en looked in your home 
+directory.
+
+If you think you alread
+y have a configuration 
+file or if you need mor
+e help, please stop by 
+the ESLint Discord serv
+er: https://eslint.org/
+chat
+

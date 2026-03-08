@@ -1,0 +1,364 @@
+﻿
+> frontend@0.0.0 build
+> vite build
+
+[36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
+transforming...
+node.exe : [33m[plugin
+ vite:esbuild] src/page
+s/Profile.jsx: [33mDup
+licate "onClick" attrib
+ute in JSX element[33m
+At line:1 char:1
++ & "C:\Program Files\n
+odejs/node.exe" "C:\Pro
+gram Files\nodejs/node_
+mo ...
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: ([33m[plugin    
+ vi...SX element[3    
+3m:String) [], Rem    o
+teException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+139 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+140 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+141 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+    |                  
+                    ^
+142 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+143 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+[39m
+[33m[plugin vite:esbui
+ld] src/pages/Profile.j
+sx: [33mDuplicate "cla
+ssName" attribute in JS
+X element[33m
+140 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+141 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+142 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+    |                  
+                    ^
+143 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+144 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+[39m
+[33m[plugin vite:esbui
+ld] src/pages/Profile.j
+sx: [33mDuplicate "onC
+lick" attribute in JSX 
+element[33m
+141 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+142 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+143 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+    |                  
+                    ^
+144 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+145 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+[39m
+[33m[plugin vite:esbui
+ld] src/pages/Profile.j
+sx: [33mDuplicate "cla
+ssName" attribute in JS
+X element[33m
+142 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+143 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+144 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+    |                  
+                    ^
+145 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+146 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+[39m
+[33m[plugin vite:esbui
+ld] src/pages/Profile.j
+sx: [33mDuplicate "onC
+lick" attribute in JSX 
+element[33m
+143 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+144 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+145 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+    |                  
+                    ^
+146 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+147 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+[39m
+[33m[plugin vite:esbui
+ld] src/pages/Profile.j
+sx: [33mDuplicate "cla
+ssName" attribute in JS
+X element[33m
+144 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+145 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+146 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+    |                  
+                    ^
+147 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+148 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+[39m
+[33m[plugin vite:esbui
+ld] src/pages/Profile.j
+sx: [33mDuplicate "onC
+lick" attribute in JSX 
+element[33m
+145 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+146 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+147 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+    |                  
+                    ^
+148 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+149 |                  
+                    sty
+le={{ color: 'var(--pri
+mary)' }}
+[39m
+[33m[plugin vite:esbui
+ld] src/pages/Profile.j
+sx: [33mDuplicate "cla
+ssName" attribute in JS
+X element[33m
+146 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+147 |                  
+                    onC
+lick={() => navigate('/
+my-channel')}
+148 |                  
+                    cla
+ssName="px-6 py-3 bg-pr
+imary/10 hover:bg-prima
+ry/20 text-primary roun
+ded-xl fo...
+    |                  
+                    ^
+149 |                  
+                    sty
+le={{ color: 'var(--pri
+mary)' }}
+150 |                  
+                >
+[39m
+[32m✓[39m 32 modules transformed.
+[31m✗[39m Build faile
+d in 1.13s
+[31merror during build
+:
+[31m[vite:esbuild] Tra
+nsform failed with 1 er
+ror:
+C:/Users/akaia/Desktop/
+GitHUB/uTube/frontend/s
+rc/pages/Home.jsx:159:4
+: ERROR: Expected ")" b
+ut found "const"[31m
+file: [36mC:/Users/aka
+ia/Desktop/GitHUB/uTube
+/frontend/src/pages/Hom
+e.jsx:159:4[31m
+[33m
+[33mExpected ")" but f
+ound "const"[33m
+157 |      const filter
+edVideos = useMemo(() =
+> selectedCategory === 
+"All"
+158 |  
+159 |      const visibl
+eChannels = useMemo(() 
+=> channels.filter(c =>
+ !blockedChannels.has(c
+.id)), [channels, block
+edChannel...
+    |      ^
+160 |  
+161 |      const filter
+edVideos = useMemo(() =
+> selectedCategory === 
+"All"
+[31m
+    at failureErrorWith
+Log (C:\Users\akaia\Des
+ktop\GitHUB\uTube\front
+end\node_modules\esbuil
+d\lib\main.js:1467:15)
+    at C:\Users\akaia\D
+esktop\GitHUB\uTube\fro
+ntend\node_modules\esbu
+ild\lib\main.js:736:50
+    at responseCallback
+s.<computed> (C:\Users\
+akaia\Desktop\GitHUB\uT
+ube\frontend\node_modul
+es\esbuild\lib\main.js:
+603:9)
+    at handleIncomingPa
+cket (C:\Users\akaia\De
+sktop\GitHUB\uTube\fron
+tend\node_modules\esbui
+ld\lib\main.js:658:12)
+    at Socket.readFromS
+tdout (C:\Users\akaia\D
+esktop\GitHUB\uTube\fro
+ntend\node_modules\esbu
+ild\lib\main.js:581:7)
+    at Socket.emit (nod
+e:events:518:28)
+    at addChunk (node:i
+nternal/streams/readabl
+e:561:12)
+    at readableAddChunk
+PushByteMode (node:inte
+rnal/streams/readable:5
+12:3)
+    at Readable.push (n
+ode:internal/streams/re
+adable:392:5)
+    at Pipe.onStreamRea
+d (node:internal/stream
+_base_commons:189:23)[
+39m

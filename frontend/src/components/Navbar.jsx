@@ -41,6 +41,7 @@ const Navbar = () => {
     const [notifications, setNotifications] = useState([]);
     const [notifLoading, setNotifLoading] = useState(false);
     const [hasNew, setHasNew] = useState(false);
+    const [unreadWarnings, setUnreadWarnings] = useState(0);
     const notifRef = useRef(null);
     const bellRef = useRef(null);
 
@@ -132,6 +133,20 @@ const Navbar = () => {
         };
     }, [user]);
 
+    // ── Poll admin warnings unread count ──
+    useEffect(() => {
+        if (!user) return;
+        const fetchUnread = async () => {
+            try {
+                const res = await ApiClient.get('/notifications/unread-count');
+                setUnreadWarnings(res.data.unread_count || 0);
+            } catch { /* silent */ }
+        };
+        fetchUnread();
+        const interval = setInterval(fetchUnread, 60000);
+        return () => clearInterval(interval);
+    }, [user]);
+
     const handleBellClick = () => {
         const newState = !isNotifOpen;
         setIsNotifOpen(newState);
@@ -208,10 +223,10 @@ const Navbar = () => {
                                 <motion.button
                                     whileHover={{ scale: 1.05 }}
                                     whileTap={{ scale: 0.95 }}
-                                    className="bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 px-4 py-2 rounded-lg transition-all flex items-center gap-2 font-bold text-sm"
+                                    className="flex items-center justify-center bg-white/5 border border-white/10 w-10 h-10 rounded-xl hover:bg-white/10 transition-all shadow-lg"
+                                    title="Go Live"
                                 >
-                                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                                    <span className="hidden xs:inline">Canlı Yayın Aç</span>
+                                    <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
                                 </motion.button>
                             </Link>
 
@@ -252,7 +267,7 @@ const Navbar = () => {
                                     <svg className={`w-5 h-5 ${isNotifOpen ? 'text-white' : 'text-white/70'}`} fill={isNotifOpen ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                                     </svg>
-                                    {hasNew && (
+                                    {(hasNew || unreadWarnings > 0) && (
                                         <motion.span
                                             initial={{ scale: 0 }}
                                             animate={{ scale: 1 }}
@@ -399,14 +414,42 @@ const Navbar = () => {
 
                                             <Link
                                                 to="/dashboard"
-                                                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 font-bold text-sm transition-colors"
-                                                style={{ color: 'var(--gold)' }}
+                                                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 text-white/70 hover:text-white font-bold text-sm transition-colors"
                                                 onClick={() => setIsMenuOpen(false)}
                                             >
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                                 </svg>
                                                 Dashboard
+                                            </Link>
+
+                                            {/* Admin Panel link — visible only to admins */}
+                                            {user?.is_admin && (
+                                                <Link
+                                                    to="/admin"
+                                                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-500/10 text-red-400 font-bold text-sm transition-colors"
+                                                    onClick={() => setIsMenuOpen(false)}
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                                                    </svg>
+                                                    Admin Panel
+                                                </Link>
+                                            )}
+
+                                            {/* Notifications link */}
+                                            <Link
+                                                to="/notifications"
+                                                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 text-white/70 hover:text-white font-bold text-sm transition-colors"
+                                                onClick={() => setIsMenuOpen(false)}
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+                                                </svg>
+                                                Notice
+                                                {unreadWarnings > 0 && (
+                                                    <span className="ml-auto bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unreadWarnings}</span>
+                                                )}
                                             </Link>
 
                                             <button

@@ -79,7 +79,7 @@ const Profile = () => {
     if (!user) return null;
 
     return (
-        <div className="min-h-screen pt-24 pb-12 px-4 md:px-8 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-neutral-900 to-black text-white">
+        <div className="min-h-screen pt-24 pb-12 px-4 md:px-8 text-white">
             <div className="max-w-4xl mx-auto">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -95,7 +95,7 @@ const Profile = () => {
                         <div className="flex-shrink-0 mx-auto md:mx-0">
                             <motion.div
                                 whileHover={{ scale: 1.05 }}
-                                className="w-40 h-40 rounded-full p-1 bg-gradient-to-br from-primary to-purple-600 shadow-xl"
+                                className="w-40 h-40 rounded-full p-1 bg-gradient-to-br from-primary to-red-600 shadow-xl"
                             >
                                 <div className="w-full h-full rounded-full overflow-hidden border-4 border-black/50 bg-black">
                                     <img
@@ -137,7 +137,7 @@ const Profile = () => {
                                 </button>
                                 <button
                                     onClick={() => navigate('/my-channel')}
-                                    className="px-6 py-3 bg-primary/10 hover:bg-primary/20 text-primary-light rounded-xl font-bold transition-all border border-primary/20 flex items-center justify-center gap-2 group"
+                                    className="px-6 py-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl font-bold transition-all border border-primary/20 flex items-center justify-center gap-2 group"
                                     style={{ color: 'var(--primary)' }}
                                 >
                                     <svg className="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">

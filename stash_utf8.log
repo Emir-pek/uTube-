@@ -1,0 +1,26 @@
+﻿commit 0867698bcbac7c91bce06c3d98ccbb92a027dda8
+Merge: 330c6c0c 935587c9
+Author: Emir <kurotenshi7993@gmail.com>
+Date:   Sat Mar 7 22:41:04 2026 +0300
+
+    On main: !!GitHub_Desktop<search-bar>
+
+MM	backend/database/connection.py
+MM	backend/database/models.py
+MM	backend/main.py
+MM	backend/routes/auth_routes.py
+MM	backend/routes/channel_routes.py
+MM	backend/routes/video_routes.py
+MM	frontend/src/App.jsx
+MM	frontend/src/components/CategoryBar.jsx
+MM	frontend/src/components/HeroSection.jsx
+MM	frontend/src/components/Navbar.jsx
+MM	frontend/src/components/Sidebar.jsx
+MM	frontend/src/components/VideoPlayer.jsx
+MM	frontend/src/index.css
+MM	frontend/src/pages/Channel.jsx
+MM	frontend/src/pages/Dashboard.jsx
+MM	frontend/src/pages/Home.jsx
+MM	frontend/src/pages/MyChannel.jsx
+MM	frontend/src/pages/Profile.jsx
+MM	frontend/src/pages/VideoDetail.jsx
