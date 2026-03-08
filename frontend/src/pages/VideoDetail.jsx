@@ -174,6 +174,7 @@ const VideoDetail = () => {
                 if (!viewTracked.current) {
                     viewTracked.current = true;
                     incrementView(id);
+                    addToHistory(id);
                 }
 
                 // Initial Recommendation Fetch
@@ -200,6 +201,16 @@ const VideoDetail = () => {
             } catch (err) {
                 // Fail silently
                 console.warn('View tracking failed silently:', err);
+            }
+        };
+
+        const addToHistory = async (videoId) => {
+            const user = getCurrentUser();
+            if (!user) return;
+            try {
+                await ApiClient.post(`/videos/${videoId}/history`);
+            } catch (err) {
+                console.warn('History tracking failed silently:', err);
             }
         };
 

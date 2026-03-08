@@ -181,7 +181,7 @@ const LiveStudio = () => {
     const [moderators, setModerators] = useState([]);
     const [bannedUsers, setBannedUsers] = useState([]);
     const [isRefreshingModData, setIsRefreshingModData] = useState(false);
-    
+
     // Detailed Moderation States
     const [showBanReasonModal, setShowBanReasonModal] = useState(false);
     const [pendingModAction, setPendingModAction] = useState({ action: '', duration: null, targetUser: null });
@@ -311,14 +311,14 @@ const LiveStudio = () => {
 
     const isCameraReady = useMemo(() => equipment.camera || videoDevices.length > 0, [equipment.camera, videoDevices.length]);
     const isMicReady = useMemo(() => equipment.mic || audioDevices.length > 0, [equipment.mic, audioDevices.length]);
-    
-    const canStartBroadcast = useMemo(() => 
-        streamTitle.trim().length > 0 && 
-        !!streamCategory && 
-        streamDescription.trim().length > 0 && 
-        isCameraReady && 
-        isMicReady, 
-    [streamTitle, streamCategory, streamDescription, isCameraReady, isMicReady]);
+
+    const canStartBroadcast = useMemo(() =>
+        streamTitle.trim().length > 0 &&
+        !!streamCategory &&
+        streamDescription.trim().length > 0 &&
+        isCameraReady &&
+        isMicReady,
+        [streamTitle, streamCategory, streamDescription, isCameraReady, isMicReady]);
 
     // ════════════════════════════════════════════════════════════════════════
     // FLV PLAYER & EFFECTS
@@ -329,13 +329,14 @@ const LiveStudio = () => {
 
     const handleStartBroadcast = useCallback(async () => {
         try {
-            const payload = { 
-                title: streamTitle, 
-                stream_thumbnail: streamThumbnail || null 
+            const payload = {
+                title: streamTitle,
+                stream_thumbnail: streamThumbnail || null
             };
             await ApiClient.post('/auth/live/start-broadcast', payload);
             setIsStaging(false);
             setIsLive(true);
+            localStorage.setItem('UTUBE_IS_BROADCASTING', 'true');
             toast.success("You are now LIVE to the public!", {
                 icon: '🔥',
                 style: { background: '#ef4444', color: '#fff', border: '1px solid rgba(239,68,68,0.5)' }
@@ -349,6 +350,7 @@ const LiveStudio = () => {
         try {
             await ApiClient.post('/auth/live/end-broadcast');
             setIsLive(false);
+            localStorage.removeItem('UTUBE_IS_BROADCASTING');
             setStudioMode('setup');
             setShowStopModal(false);
 
@@ -357,7 +359,7 @@ const LiveStudio = () => {
             setActivePoll(null); // ERADICATE GHOST POLLS
             setPollPhase('none');
             setShowPollModal(false); // NO STREAM NO POLLS
-            
+
             toast.success("Broadcast ended successfully.", {
                 style: { background: '#0a0a0a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }
             });
@@ -408,7 +410,7 @@ const LiveStudio = () => {
                             // ✅ Phase 2: Batching chat messages
                             chatBatchQueueRef.current.push(parsedMessage);
                             messageTimestampsRef.current.push(Date.now());
-                            
+
                             if (chatBatchQueueRef.current.length >= 10) {
                                 if (chatBatchTimeoutRef.current) clearTimeout(chatBatchTimeoutRef.current);
                                 flushChatBatch();
@@ -510,7 +512,13 @@ const LiveStudio = () => {
                             const newStagingStatus = !!parsedMessage.is_staging;
                             setIsLive(newLiveStatus);
                             setIsStaging(newStagingStatus);
-                            
+
+                            if (newLiveStatus) {
+                                localStorage.setItem('UTUBE_IS_BROADCASTING', 'true');
+                            } else {
+                                localStorage.removeItem('UTUBE_IS_BROADCASTING');
+                            }
+
                             if (newStagingStatus && !newLiveStatus) {
                                 setStudioMode('setup'); // CRITICAL FIX: Staging stays on Setup screen
                                 setSignalDetected(true);
@@ -956,9 +964,9 @@ const LiveStudio = () => {
             }
         }
 
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) { 
-            toast.error('Chat not connected'); 
-            return; 
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+            toast.error('Chat not connected');
+            return;
         }
 
         wsRef.current.send(JSON.stringify({ text: trimmed }));
@@ -1066,7 +1074,7 @@ const LiveStudio = () => {
 
             await ApiClient.post(`/moderator/${currentUser.username}/${endpoint}`, payload);
             toast.success(`${action === 'ban_user' ? 'Banned' : 'Timed out'} ${targetUser.username}`);
-            
+
             setShowBanReasonModal(false);
             setPendingModAction({ action: '', duration: null, targetUser: null });
             setSelectedMessage(null);
@@ -1297,12 +1305,12 @@ const LiveStudio = () => {
                                                     <span className="text-[9px] font-jet uppercase tracking-widest text-white/30">Camera Standby</span>
                                                 </div>
                                             )}
-                                            
+
                                             {isStaging && (
-                                              <div className="absolute top-2 left-2 px-3 py-1 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 rounded-lg text-[10px] font-jet font-bold tracking-[0.25em] uppercase shadow-[0_0_15px_rgba(234,179,8,0.3)] backdrop-blur-xl flex items-center gap-2">
-                                                  <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shadow-[0_0_8px_#eab308]" />
-                                                  STAGING (PREVIEW)
-                                              </div>
+                                                <div className="absolute top-2 left-2 px-3 py-1 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 rounded-lg text-[10px] font-jet font-bold tracking-[0.25em] uppercase shadow-[0_0_15px_rgba(234,179,8,0.3)] backdrop-blur-xl flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shadow-[0_0_8px_#eab308]" />
+                                                    STAGING (PREVIEW)
+                                                </div>
                                             )}
                                         </div>
                                         <div className="flex flex-col gap-2">
@@ -1555,16 +1563,16 @@ const LiveStudio = () => {
                             {/* Center Column: Main Preview & controls */}
                             <div className="flex-1 flex flex-col gap-5">
 
-                                    {/* Dashboard Stats Row */}
-                                    <div className="grid grid-cols-6 gap-3 shrink-0">
-                                        {[
-                                            { label: 'Current Viewers', value: broadcastMetrics.viewerCount, icon: '👁️', color: 'text-emerald-400' },
-                                            { label: 'Peak Viewers', value: broadcastMetrics.peakViewers, icon: '📈', color: 'text-cyan-400' },
-                                            { label: 'Total Watch Time', value: watchTimeStr, icon: '⏱️', color: 'text-purple-400' },
-                                            { label: 'New Subs', value: broadcastMetrics.newSubscribersCount, icon: '⭐', color: 'text-yellow-400' },
-                                            { label: 'Chat Rate (msg/m)', value: broadcastMetrics.messageRate, icon: '💬', color: 'text-pink-400' },
-                                            { label: 'Mod Actions', value: moderators.length + bannedUsers.length, icon: '🛡️', color: 'text-[#00ffcc]' },
-                                        ].map((stat, i) => (
+                                {/* Dashboard Stats Row */}
+                                <div className="grid grid-cols-6 gap-3 shrink-0">
+                                    {[
+                                        { label: 'Current Viewers', value: broadcastMetrics.viewerCount, icon: '👁️', color: 'text-emerald-400' },
+                                        { label: 'Peak Viewers', value: broadcastMetrics.peakViewers, icon: '📈', color: 'text-cyan-400' },
+                                        { label: 'Total Watch Time', value: watchTimeStr, icon: '⏱️', color: 'text-purple-400' },
+                                        { label: 'New Subs', value: broadcastMetrics.newSubscribersCount, icon: '⭐', color: 'text-yellow-400' },
+                                        { label: 'Chat Rate (msg/m)', value: broadcastMetrics.messageRate, icon: '💬', color: 'text-pink-400' },
+                                        { label: 'Mod Actions', value: moderators.length + bannedUsers.length, icon: '🛡️', color: 'text-[#00ffcc]' },
+                                    ].map((stat, i) => (
                                         <div key={i} className="bg-white/[0.03] backdrop-blur-3xl neon-panel rounded-xl p-4 flex flex-col gap-1 border border-white/5 transition-all hover:bg-white/[0.05]">
                                             <div className="flex items-center gap-2 text-white/40 text-[10px] uppercase font-jet tracking-widest">
                                                 <span>{stat.icon}</span> {stat.label}
@@ -1667,7 +1675,7 @@ const LiveStudio = () => {
                                             <p className="text-white/30 font-jet font-bold tracking-[0.4em] uppercase mb-6 text-xs text-center">
                                                 {signalDetected ? 'Signal Detected. Ready to cut live.' : 'Awaiting Video Signal'}
                                             </p>
-                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={() => {}} disabled={isConnecting} className={`relative z-50 px-10 py-4 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all overflow-hidden ${isConnecting ? 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5' : 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'}`} style={!isConnecting ? { textShadow: '0 0 15px rgba(239,68,68,0.5)', boxShadow: '0 0 20px rgba(239,68,68,0.2)' } : {}}>
+                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={() => { }} disabled={isConnecting} className={`relative z-50 px-10 py-4 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all overflow-hidden ${isConnecting ? 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5' : 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'}`} style={!isConnecting ? { textShadow: '0 0 15px rgba(239,68,68,0.5)', boxShadow: '0 0 20px rgba(239,68,68,0.2)' } : {}}>
                                                 {isConnecting ? 'CONNECTING...' : 'FORCE REFRESH FEED'}
                                             </motion.button>
                                         </div>
@@ -1712,8 +1720,8 @@ const LiveStudio = () => {
                                         <button onClick={() => copyToClipboard(`https://utube.test/live/${currentUser?.username}`)} className="px-6 py-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-jet uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(6,182,212,0.1)]">
                                             🔗 Share Link
                                         </button>
-                                        <button 
-                                            onClick={() => setShowModerationPanel(true)} 
+                                        <button
+                                            onClick={() => setShowModerationPanel(true)}
                                             className="px-6 py-3 rounded-xl border border-[#00ffcc]/30 bg-[#00ffcc]/10 hover:bg-[#00ffcc]/20 text-[#00ffcc] text-xs font-jet uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(0,255,204,0.1)] flex items-center gap-2"
                                         >
                                             🛡️ Moderation
@@ -1741,14 +1749,14 @@ const LiveStudio = () => {
                                                 </span>
                                             </div>
                                             <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                                                <motion.div 
+                                                <motion.div
                                                     className={`h-full bg-gradient-to-r ${hypeUI.barColor}`}
                                                     initial={{ width: 0 }}
                                                     animate={{ width: `${Math.min(100, (hypeLevel / 4) * 100)}%` }}
                                                 />
                                             </div>
                                         </div>
-                                        
+
 
                                     </div>
                                 </div>
@@ -1767,12 +1775,12 @@ const LiveStudio = () => {
                                 <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-black/10 relative" onScroll={handleChatScroll}>
                                     {chatMessages.length === 0 && <p className="text-white/10 text-[11px] text-center py-8 font-jet">Silence in the chat...</p>}
                                     {chatMessages.map((msg, idx) => (
-                                        <div 
-                                            key={msg.id || idx} 
+                                        <div
+                                            key={msg.id || idx}
                                             className="text-[12px] leading-relaxed group relative flex items-start justify-between gap-1 px-2 py-1 -mx-2 rounded hover:bg-white/[0.03] transition-colors"
                                         >
                                             <div className="flex-1 min-w-0">
-                                                <span 
+                                                <span
                                                     className="inline-flex items-center gap-1 mr-1.5 cursor-pointer"
                                                     onClick={() => {
                                                         setSelectedMessage(msg);
@@ -1787,7 +1795,7 @@ const LiveStudio = () => {
 
                                             {/* Action Dots */}
                                             {msg.type !== 'system' && (
-                                                <button 
+                                                <button
                                                     onClick={() => {
                                                         setSelectedMessage(msg);
                                                         setShowActionModal(true);
@@ -1846,263 +1854,263 @@ const LiveStudio = () => {
 
             {/* ═══ QUICK ACTION MODAL OVERLAY ═══ */}
             <AnimatePresence>
-                                {showActionModal && selectedMessage && (
-                                    <motion.div 
-                                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                                        className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-                                        onClick={() => setShowActionModal(false)}
-                                    >
-                                        <motion.div 
-                                            initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-                                            className="bg-[#0a0a0a]/95 border border-[#00ffcc]/20 w-full max-w-[280px] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden"
-                                            onClick={e => e.stopPropagation()}
-                                        >
-                                            <div className="flex justify-between items-center px-4 py-3 border-b border-white/5 bg-white/5">
-                                                <span className="text-sm font-bold text-white flex items-center gap-2">
-                                                    👤 {selectedMessage.user}
-                                                    <UserBadge tier={selectedMessage.tier} isCreator={selectedMessage.user === currentUser?.username} />
-                                                </span>
-                                                <button onClick={() => setShowActionModal(false)} className="text-white/40 hover:text-white transition-colors">
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                </button>
-                                            </div>
-                                            <div className="p-2 space-y-1">
-                                                <button onClick={() => handleModAction('delete_message')} className="w-full text-left px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white rounded flex items-center gap-2 transition-colors">🗑️ Delete message</button>
-                                                <hr className="border-white/5 my-1" />
-                                                <div className="px-2 py-1">
-                                                    <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest block mb-2">Timeout (Silent)</span>
-                                                    <div className="flex gap-1">
-                                                        <button onClick={() => handleModAction('timeout_user', 60)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">1m</button>
-                                                        <button onClick={() => handleModAction('timeout_user', 300)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">5m</button>
-                                                        <button onClick={() => handleModAction('timeout_user', 600)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">10m</button>
-                                                    </div>
-                                                </div>
-                                                <div className="px-2 py-1">
-                                                    <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest block mb-2 mt-1">Permanent Actions</span>
-                                                    <button onClick={() => handleModAction('ban_user')} className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded text-[10px] font-black tracking-widest uppercase">BAN USER</button>
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    </motion.div>
-                                )}
+                {showActionModal && selectedMessage && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                        onClick={() => setShowActionModal(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                            className="bg-[#0a0a0a]/95 border border-[#00ffcc]/20 w-full max-w-[280px] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex justify-between items-center px-4 py-3 border-b border-white/5 bg-white/5">
+                                <span className="text-sm font-bold text-white flex items-center gap-2">
+                                    👤 {selectedMessage.user}
+                                    <UserBadge tier={selectedMessage.tier} isCreator={selectedMessage.user === currentUser?.username} />
+                                </span>
+                                <button onClick={() => setShowActionModal(false)} className="text-white/40 hover:text-white transition-colors">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <div className="p-2 space-y-1">
+                                <button onClick={() => handleModAction('delete_message')} className="w-full text-left px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white rounded flex items-center gap-2 transition-colors">🗑️ Delete message</button>
+                                <hr className="border-white/5 my-1" />
+                                <div className="px-2 py-1">
+                                    <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest block mb-2">Timeout (Silent)</span>
+                                    <div className="flex gap-1">
+                                        <button onClick={() => handleModAction('timeout_user', 60)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">1m</button>
+                                        <button onClick={() => handleModAction('timeout_user', 300)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">5m</button>
+                                        <button onClick={() => handleModAction('timeout_user', 600)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-[10px] font-bold">10m</button>
+                                    </div>
+                                </div>
+                                <div className="px-2 py-1">
+                                    <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest block mb-2 mt-1">Permanent Actions</span>
+                                    <button onClick={() => handleModAction('ban_user')} className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded text-[10px] font-black tracking-widest uppercase">BAN USER</button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
             </AnimatePresence>
 
-                            {/* ═══ MODERATION PANEL (Slide-in) ═══ */}
-                            <AnimatePresence>
-                                {showModerationPanel && (
-                                    <div className="fixed inset-0 z-[150] overflow-hidden">
-                                        <motion.div 
-                                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                                            onClick={() => setShowModerationPanel(false)}
-                                            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                                        />
-                                        <motion.div 
-                                            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-                                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                                            className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-[#0a0a0a] border-l border-white/10 shadow-2xl flex flex-col"
-                                        >
-                                            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
-                                                <h2 className="text-xl font-black text-white tracking-[0.2em] uppercase flex items-center gap-3">
-                                                    <span className="text-[#00ffcc] shadow-[0_0_15px_#00ffcc]">🛡️</span> Moderation Panel
-                                                </h2>
-                                                <button onClick={() => setShowModerationPanel(false)} className="p-2 hover:bg-white/10 rounded-full transition-all text-white/40 hover:text-white">
-                                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                </button>
-                                            </div>
+            {/* ═══ MODERATION PANEL (Slide-in) ═══ */}
+            <AnimatePresence>
+                {showModerationPanel && (
+                    <div className="fixed inset-0 z-[150] overflow-hidden">
+                        <motion.div
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            onClick={() => setShowModerationPanel(false)}
+                            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                        />
+                        <motion.div
+                            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                            className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-[#0a0a0a] border-l border-white/10 shadow-2xl flex flex-col"
+                        >
+                            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+                                <h2 className="text-xl font-black text-white tracking-[0.2em] uppercase flex items-center gap-3">
+                                    <span className="text-[#00ffcc] shadow-[0_0_15px_#00ffcc]">🛡️</span> Moderation Panel
+                                </h2>
+                                <button onClick={() => setShowModerationPanel(false)} className="p-2 hover:bg-white/10 rounded-full transition-all text-white/40 hover:text-white">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
 
-                                            <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-white/10">
-                                                {/* Section: Moderators */}
-                                                <section>
-                                                    <div className="flex justify-between items-center mb-4">
-                                                        <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em]">Channel Moderators</h3>
-                                                        <button 
-                                                            onClick={async () => {
-                                                                const username = window.prompt("Enter username to add as moderator:");
-                                                                if (username) {
-                                                                    try {
-                                                                        await ApiClient.post('/api/permissions/grant', { username, tier: 2 });
-                                                                        toast.success(`Added ${username} as moderator`);
-                                                                        fetchModerationData();
-                                                                    } catch (e) { toast.error(e.response?.data?.detail || "Failed to add mod"); }
-                                                                }
-                                                            }}
-                                                            className="text-[10px] font-bold text-[#00ffcc] hover:underline uppercase tracking-widest"
-                                                        >+ Add New</button>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        {moderators.length === 0 ? (
-                                                            <div className="p-4 rounded-xl border border-dashed border-white/5 text-center text-[10px] text-white/20 italic">No moderators assigned yet.</div>
-                                                        ) : (
-                                                            moderators.map(mod => (
-                                                                <div key={mod.id} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-[#00ffcc]/20 transition-all">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-xs font-bold text-cyan-400">
-                                                                            {mod.username[0].toUpperCase()}
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm font-bold text-white">{mod.username}</p>
-                                                                            <p className="text-[9px] text-cyan-500/50 uppercase tracking-widest font-jet">{mod.role}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                    <button onClick={() => handleRemoveMod(mod.username)} className="text-[10px] font-bold text-red-500/50 hover:text-red-500 uppercase tracking-widest">Remove</button>
-                                                                </div>
-                                                            ))
-                                                        )}
-                                                    </div>
-                                                </section>
-
-                                                {/* Section: Banned Users */}
-                                                <section>
-                                                    <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em] mb-4">Current Bans</h3>
-                                                    <div className="space-y-2">
-                                                        {bannedUsers.length === 0 ? (
-                                                            <div className="p-4 rounded-xl border border-dashed border-white/5 text-center text-[10px] text-white/20 italic">Your channel is positive — no bans!</div>
-                                                        ) : (
-                                                            bannedUsers.map(ban => (
-                                                                <div key={ban.username} className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl border border-white/5">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <p className="text-sm font-bold text-white/80">{ban.username}</p>
-                                                                        <span className="text-[8px] text-zinc-600 font-mono italic">Banned on {new Date(ban.created_at).toLocaleDateString()}</span>
-                                                                    </div>
-                                                                    <button onClick={() => handleUnbanUser(ban.username)} className="text-[10px] font-bold text-[#00ffcc]/50 hover:text-[#00ffcc] uppercase tracking-widest">Unban</button>
-                                                                </div>
-                                                            ))
-                                                        )}
-                                                    </div>
-                                                </section>
-                                            </div>
-                                            
-                                            <div className="p-6 border-t border-white/10 bg-black/40">
-                                                <button onClick={fetchModerationData} className="w-full py-3 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all">
-                                                    Refresh Data
-                                                </button>
-                                            </div>
-                                        </motion.div>
-                                    </div>
-                                )}
-                            </AnimatePresence>
-
-                {/* ═══ Poll Modal ═══ */}
-                <AnimatePresence>
-                    {showPollModal && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
-                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-                                className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-                                <h3 className="text-sm font-bold mb-4 flex items-center gap-2 text-white/80"><span>📊</span> CREATE LIVE POLL</h3>
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="text-[9px] uppercase tracking-[0.2em] text-white/20 font-jet ml-1">Question</label>
-                                        <input type="text" value={pollQuestion} onChange={(e) => setPollQuestion(e.target.value)} placeholder="What should I play next?" autoFocus
-                                            className="w-full bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-red-500/30 mt-1" />
-                                    </div>
-                                    {pollOptions.map((opt, i) => (
-                                        <div key={i}>
-                                            <div className="flex justify-between items-center ml-1">
-                                                <label className="text-[9px] uppercase tracking-[0.2em] text-white/20 font-jet">Option {i + 1}</label>
-                                                {i >= 2 && (
-                                                    <button type="button" onClick={() => setPollOptions(prev => prev.filter((_, idx) => idx !== i))} className="text-[9px] text-red-500/70 hover:text-red-500 font-jet tracking-wider uppercase">Remove</button>
-                                                )}
-                                            </div>
-                                            <input type="text" value={opt} onChange={(e) => {
-                                                const newOpts = [...pollOptions];
-                                                newOpts[i] = e.target.value;
-                                                setPollOptions(newOpts);
-                                            }} placeholder={`Option ${i + 1}`}
-                                                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-red-500/30 mt-1" />
-                                        </div>
-                                    ))}
-                                    {pollOptions.length < 4 && (
-                                        <button type="button" onClick={() => setPollOptions(prev => [...prev, ''])} className="w-full py-2 bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] border-dashed rounded-lg text-[10px] text-white/40 font-jet tracking-widest uppercase transition-colors mt-2">
-                                            + Add Option
-                                        </button>
-                                    )}
-                                    <div>
-                                        <label className="text-[9px] uppercase tracking-[0.2em] text-white/20 font-jet ml-1">Duration (Seconds)</label>
-                                        <input type="number" min="10" max="300" value={pollDuration} onChange={(e) => setPollDuration(Number(e.target.value) || 60)} placeholder="60"
-                                            className="w-full bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-red-500/30 mt-1" />
-                                    </div>
-                                </div>
-                                <div className="flex gap-3 mt-5">
-                                    <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={() => setShowPollModal(false)}
-                                        className="flex-1 py-2.5 bg-white/5 text-white/40 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase">CANCEL</motion.button>
-                                    <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={handleStartPoll}
-                                        className="flex-1 py-2.5 bg-white/5 border border-red-500/20 text-red-400 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase"
-                                        style={{ textShadow: '0 0 10px rgba(239,68,68,0.4)' }}>LAUNCH POLL</motion.button>
-                                </div>
-                            </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {/* ═══ Active Poll HUD (DELETED - MOVED TO OVERLAY) ═══ */}
-
-
-                {/* Background Library Modal Drop-in */}
-                <BackgroundGalleryModal
-                    isOpen={showBackgroundModal}
-                    onClose={() => setShowBackgroundModal(false)}
-                    activeBgUrl={activeBgUrl}
-                    onBackgroundSelect={handleSelectBackground}
-                    getBgUrl={getBgUrl}
-                    customBackgrounds={customBackgrounds}
-                    setCustomBackgrounds={setCustomBackgrounds}
-                />
-
-                {/* Unified Regenerate Key & Stop Broadcast Modal */}
-                <AnimatePresence>
-                    {(showRegenerateModal || showStopModal) && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
-                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-                                className="bg-[#0a0a0a] border border-red-500/20 rounded-2xl p-6 w-full max-w-md shadow-[0_0_30px_rgba(239,68,68,0.1)]">
-                                <h3 className="text-sm font-bold mb-4 flex items-center gap-2 text-red-500 font-jet tracking-widest uppercase">
-                                    <span>⚠️</span> {showStopModal ? 'END BROADCAST' : 'WARNING'}
-                                </h3>
-                                <p className="text-white/70 text-sm mb-6 leading-relaxed">
-                                    {showStopModal
-                                        ? "Are you sure you want to end your stream? This will disconnect viewers immediately."
-                                        : "Are you sure? This will disconnect any active streams immediately and permanently invalidate your current stream key. You will need to update OBS with the new key."}
-                                </p>
-                                <div className="flex gap-3">
-                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setShowRegenerateModal(false); setShowStopModal(false); }}
-                                        className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white/60 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase transition-colors">
-                                        Cancel
-                                    </motion.button>
-                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={async () => {
-                                        if (showRegenerateModal) {
-                                            handleRegenerateKey();
-                                        } else if (showStopModal) {
-                                            const stopToast = toast.loading("Ending broadcast...");
-                                            try {
-                                                await ApiClient.post('/auth/live/end-broadcast');
-                                                setIsLive(false);
-                                                setIsConnecting(false);
-                                                setStudioMode('setup');
-                                                setShowStopModal(false);
-                                                setChatMessages([]);
-                                                setActivePoll(null); 
-                                                setPollPhase('none');
-                                                setShowPollModal(false);
-                                                toast.success("Broadcast Stopped", { id: stopToast });
-                                            } catch (err) {
-                                                const msg = err.response?.data?.detail || "Failed to end broadcast.";
-                                                toast.error(msg, { id: stopToast, duration: 5000 });
-                                                if (msg.toLowerCase().includes('obs')) {
-                                                    // Highlight the specific warning
-                                                    console.warn("[STOP GUARD] OBS still active");
+                            <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-white/10">
+                                {/* Section: Moderators */}
+                                <section>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em]">Channel Moderators</h3>
+                                        <button
+                                            onClick={async () => {
+                                                const username = window.prompt("Enter username to add as moderator:");
+                                                if (username) {
+                                                    try {
+                                                        await ApiClient.post('/api/permissions/grant', { username, tier: 2 });
+                                                        toast.success(`Added ${username} as moderator`);
+                                                        fetchModerationData();
+                                                    } catch (e) { toast.error(e.response?.data?.detail || "Failed to add mod"); }
                                                 }
+                                            }}
+                                            className="text-[10px] font-bold text-[#00ffcc] hover:underline uppercase tracking-widest"
+                                        >+ Add New</button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {moderators.length === 0 ? (
+                                            <div className="p-4 rounded-xl border border-dashed border-white/5 text-center text-[10px] text-white/20 italic">No moderators assigned yet.</div>
+                                        ) : (
+                                            moderators.map(mod => (
+                                                <div key={mod.id} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-[#00ffcc]/20 transition-all">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-xs font-bold text-cyan-400">
+                                                            {mod.username[0].toUpperCase()}
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-bold text-white">{mod.username}</p>
+                                                            <p className="text-[9px] text-cyan-500/50 uppercase tracking-widest font-jet">{mod.role}</p>
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => handleRemoveMod(mod.username)} className="text-[10px] font-bold text-red-500/50 hover:text-red-500 uppercase tracking-widest">Remove</button>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </section>
+
+                                {/* Section: Banned Users */}
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em] mb-4">Current Bans</h3>
+                                    <div className="space-y-2">
+                                        {bannedUsers.length === 0 ? (
+                                            <div className="p-4 rounded-xl border border-dashed border-white/5 text-center text-[10px] text-white/20 italic">Your channel is positive — no bans!</div>
+                                        ) : (
+                                            bannedUsers.map(ban => (
+                                                <div key={ban.username} className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl border border-white/5">
+                                                    <div className="flex items-center gap-3">
+                                                        <p className="text-sm font-bold text-white/80">{ban.username}</p>
+                                                        <span className="text-[8px] text-zinc-600 font-mono italic">Banned on {new Date(ban.created_at).toLocaleDateString()}</span>
+                                                    </div>
+                                                    <button onClick={() => handleUnbanUser(ban.username)} className="text-[10px] font-bold text-[#00ffcc]/50 hover:text-[#00ffcc] uppercase tracking-widest">Unban</button>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </section>
+                            </div>
+
+                            <div className="p-6 border-t border-white/10 bg-black/40">
+                                <button onClick={fetchModerationData} className="w-full py-3 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all">
+                                    Refresh Data
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* ═══ Poll Modal ═══ */}
+            <AnimatePresence>
+                {showPollModal && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
+                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                            className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                            <h3 className="text-sm font-bold mb-4 flex items-center gap-2 text-white/80"><span>📊</span> CREATE LIVE POLL</h3>
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-[9px] uppercase tracking-[0.2em] text-white/20 font-jet ml-1">Question</label>
+                                    <input type="text" value={pollQuestion} onChange={(e) => setPollQuestion(e.target.value)} placeholder="What should I play next?" autoFocus
+                                        className="w-full bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-red-500/30 mt-1" />
+                                </div>
+                                {pollOptions.map((opt, i) => (
+                                    <div key={i}>
+                                        <div className="flex justify-between items-center ml-1">
+                                            <label className="text-[9px] uppercase tracking-[0.2em] text-white/20 font-jet">Option {i + 1}</label>
+                                            {i >= 2 && (
+                                                <button type="button" onClick={() => setPollOptions(prev => prev.filter((_, idx) => idx !== i))} className="text-[9px] text-red-500/70 hover:text-red-500 font-jet tracking-wider uppercase">Remove</button>
+                                            )}
+                                        </div>
+                                        <input type="text" value={opt} onChange={(e) => {
+                                            const newOpts = [...pollOptions];
+                                            newOpts[i] = e.target.value;
+                                            setPollOptions(newOpts);
+                                        }} placeholder={`Option ${i + 1}`}
+                                            className="w-full bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-red-500/30 mt-1" />
+                                    </div>
+                                ))}
+                                {pollOptions.length < 4 && (
+                                    <button type="button" onClick={() => setPollOptions(prev => [...prev, ''])} className="w-full py-2 bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] border-dashed rounded-lg text-[10px] text-white/40 font-jet tracking-widest uppercase transition-colors mt-2">
+                                        + Add Option
+                                    </button>
+                                )}
+                                <div>
+                                    <label className="text-[9px] uppercase tracking-[0.2em] text-white/20 font-jet ml-1">Duration (Seconds)</label>
+                                    <input type="number" min="10" max="300" value={pollDuration} onChange={(e) => setPollDuration(Number(e.target.value) || 60)} placeholder="60"
+                                        className="w-full bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-red-500/30 mt-1" />
+                                </div>
+                            </div>
+                            <div className="flex gap-3 mt-5">
+                                <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={() => setShowPollModal(false)}
+                                    className="flex-1 py-2.5 bg-white/5 text-white/40 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase">CANCEL</motion.button>
+                                <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={handleStartPoll}
+                                    className="flex-1 py-2.5 bg-white/5 border border-red-500/20 text-red-400 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase"
+                                    style={{ textShadow: '0 0 10px rgba(239,68,68,0.4)' }}>LAUNCH POLL</motion.button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ═══ Active Poll HUD (DELETED - MOVED TO OVERLAY) ═══ */}
+
+
+            {/* Background Library Modal Drop-in */}
+            <BackgroundGalleryModal
+                isOpen={showBackgroundModal}
+                onClose={() => setShowBackgroundModal(false)}
+                activeBgUrl={activeBgUrl}
+                onBackgroundSelect={handleSelectBackground}
+                getBgUrl={getBgUrl}
+                customBackgrounds={customBackgrounds}
+                setCustomBackgrounds={setCustomBackgrounds}
+            />
+
+            {/* Unified Regenerate Key & Stop Broadcast Modal */}
+            <AnimatePresence>
+                {(showRegenerateModal || showStopModal) && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
+                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                            className="bg-[#0a0a0a] border border-red-500/20 rounded-2xl p-6 w-full max-w-md shadow-[0_0_30px_rgba(239,68,68,0.1)]">
+                            <h3 className="text-sm font-bold mb-4 flex items-center gap-2 text-red-500 font-jet tracking-widest uppercase">
+                                <span>⚠️</span> {showStopModal ? 'END BROADCAST' : 'WARNING'}
+                            </h3>
+                            <p className="text-white/70 text-sm mb-6 leading-relaxed">
+                                {showStopModal
+                                    ? "Are you sure you want to end your stream? This will disconnect viewers immediately."
+                                    : "Are you sure? This will disconnect any active streams immediately and permanently invalidate your current stream key. You will need to update OBS with the new key."}
+                            </p>
+                            <div className="flex gap-3">
+                                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setShowRegenerateModal(false); setShowStopModal(false); }}
+                                    className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white/60 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase transition-colors">
+                                    Cancel
+                                </motion.button>
+                                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={async () => {
+                                    if (showRegenerateModal) {
+                                        handleRegenerateKey();
+                                    } else if (showStopModal) {
+                                        const stopToast = toast.loading("Ending broadcast...");
+                                        try {
+                                            await ApiClient.post('/auth/live/end-broadcast');
+                                            setIsLive(false);
+                                            setIsConnecting(false);
+                                            setStudioMode('setup');
+                                            setShowStopModal(false);
+                                            setChatMessages([]);
+                                            setActivePoll(null);
+                                            setPollPhase('none');
+                                            setShowPollModal(false);
+                                            toast.success("Broadcast Stopped", { id: stopToast });
+                                        } catch (err) {
+                                            const msg = err.response?.data?.detail || "Failed to end broadcast.";
+                                            toast.error(msg, { id: stopToast, duration: 5000 });
+                                            if (msg.toLowerCase().includes('obs')) {
+                                                // Highlight the specific warning
+                                                console.warn("[STOP GUARD] OBS still active");
                                             }
                                         }
-                                    }}
-                                        className="flex-1 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-500 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase transition-colors shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-                                        {showStopModal ? 'Confirm Stop' : 'Confirm Regenerate'}
-                                    </motion.button>
-                                </div>
-                            </motion.div>
+                                    }
+                                }}
+                                    className="flex-1 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-500 rounded-lg text-[10px] font-jet font-bold tracking-[0.15em] uppercase transition-colors shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                                    {showStopModal ? 'Confirm Stop' : 'Confirm Regenerate'}
+                                </motion.button>
+                            </div>
                         </motion.div>
-                    )}
-                </AnimatePresence>
+                    </motion.div>
+                )}
+            </AnimatePresence>
             {/* ═══ MODERATION REASON DIALOG ═══ */}
             <BanReasonDialog
                 isOpen={showBanReasonModal}
