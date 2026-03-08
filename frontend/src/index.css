@@ -2,9 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  scrollbar-gutter: stable;
+}
+
 :root {
   font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   color-scheme: dark;
+  --accent: #FFFFFF;
+  --accent-glow: rgba(255, 255, 255, 0.4);
 }
 
 body {
@@ -13,6 +19,7 @@ body {
   min-height: 100vh;
   color: #FFFFFF;
   overflow-x: hidden;
+  overflow-y: scroll;
 }
 
 .glass {
@@ -21,7 +28,6 @@ body {
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
-
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
@@ -141,4 +147,4 @@ body {
   background: rgba(15, 15, 25, 0.6);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.05);
-}
+}
