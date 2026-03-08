@@ -148,3 +148,9 @@ body {
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
+
+/* Playlist sidebar — animated equalizer bars for currently playing video */
+@keyframes equalize {
+  0%, 100% { transform: scaleY(0.4); }
+  50%       { transform: scaleY(1); }
+}
