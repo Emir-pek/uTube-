@@ -56,7 +56,25 @@ class ConnectionManager:
                 self.slow_mode.pop(room, None)
                 self.last_message_times.pop(room, None)
                 self.active_polls.pop(room, None)
-    
+
+    async def disconnect_user(self, room: str, username: str, reason_text: str = "You have been disconnected by a moderator."):
+        """Forcefully disconnect a specific user from the room."""
+        if room not in self.rooms:
+            return
+            
+        dead_connections = []
+        for ws, uname in self.rooms[room]:
+            if uname == username:
+                try:
+                    await self.send_personal(ws, {"type": "error", "text": reason_text})
+                    await ws.close(code=1008)
+                except Exception:
+                    pass
+                dead_connections.append(ws)
+                
+        for dead in dead_connections:
+            self.disconnect(room, dead)
+            
     def get_username(self, room: str, websocket: WebSocket) -> Optional[str]:
         """Get the username for a specific connection."""
         if room in self.rooms:
@@ -166,11 +184,12 @@ class ConnectionManager:
             "msg_id": msg_id
         })
 
-    async def broadcast_status_update(self, room: str, is_live: bool):
-        """Broadcast a stream status update (live/offline) to everyone in the room."""
+    async def broadcast_status_update(self, room: str, is_live: bool, is_staging: bool = False):
+        """Broadcast a stream status update (live/staging/offline) to everyone in the room."""
         await self.broadcast(room, {
             "type": "status_update",
             "is_live": is_live,
+            "is_staging": is_staging,
             "timestamp": int(time.time() * 1000)
         })
     

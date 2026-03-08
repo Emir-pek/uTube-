@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 
 import ApiClient from '../utils/ApiClient';
 import HeroSection from '../components/HeroSection';
 import VideoGrid, { getBlockedChannels, getBlockedVideosData } from '../components/VideoGrid';
+import { getAvatarUrl, getValidUrl, THUMBNAIL_FALLBACK } from '../utils/urlHelper';
 
 import CategoryBar from '../components/CategoryBar';
 import ChannelSearchCard from '../components/ChannelSearchCard';
@@ -159,7 +160,7 @@ const Home = () => {
                                 >
                                     <div className="relative aspect-video rounded-xl overflow-hidden mb-3 bg-white/5 ring-1 ring-white/10">
                                         <img
-                                            src={stream.profile_image ? (import.meta.env.VITE_MEDIA_BASE_URL + '/uploads/avatars/' + stream.profile_image) : 'https://ui-avatars.com/api/?name=' + stream.username}
+                                            src={stream.stream_thumbnail ? getValidUrl(stream.stream_thumbnail, THUMBNAIL_FALLBACK) : getAvatarUrl(stream.profile_image, stream.username)}
                                             alt={stream.stream_title || `${stream.username}'s Stream`}
                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-60"
                                         />
@@ -178,7 +179,7 @@ const Home = () => {
                                     <div className="flex gap-3 pr-4">
                                         <div className="w-10 h-10 rounded-full bg-white/10 shrink-0 overflow-hidden outline outline-2 outline-offset-2 outline-red-500/50">
                                             <img
-                                                src={stream.profile_image ? (import.meta.env.VITE_MEDIA_BASE_URL + '/uploads/avatars/' + stream.profile_image) : 'https://ui-avatars.com/api/?name=' + stream.username}
+                                                src={getAvatarUrl(stream.profile_image, stream.username)}
                                                 alt={stream.username}
                                                 className="w-full h-full object-cover"
                                             />

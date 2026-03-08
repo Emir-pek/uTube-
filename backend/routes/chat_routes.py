@@ -22,18 +22,18 @@ WebSocket Actions (from any authenticated user):
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import time
 
 from backend.database import get_db, SessionLocal
-from backend.database.models import User, ChatMessage, ActivityLog, ClipLog, StreamMarker
+from backend.database.models import User, ChatMessage, ActivityLog, ClipLog, StreamMarker, StreamModerator, StreamBan, StreamTimeout
 from backend.core.security import decode_access_token
 from backend.chat.manager import manager
 
 router = APIRouter(tags=["Chat"])
-
 
 # ============================================================================
 # Helper: Validate JWT from query param
@@ -52,6 +52,36 @@ def validate_ws_token(token: Optional[str], db: Session) -> Optional[User]:
 
 
 # ============================================================================
+# WebSocket: Minimal Test Endpoint (diagnostic — no auth, no DB)
+# ============================================================================
+
+@router.websocket("/ws/test")
+async def test_websocket(websocket: WebSocket):
+    """Minimal WS endpoint to verify basic WebSocket connectivity."""
+    print("=" * 50)
+    print("[WS TEST] Connection attempt received!")
+    print("=" * 50)
+
+    await websocket.accept()
+    print("[WS TEST] ✅ WebSocket accepted successfully!")
+
+    await websocket.send_json({
+        "message": "Test connection successful!",
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            print(f"[WS TEST] Received: {data}")
+            await websocket.send_json({"echo": data})
+    except WebSocketDisconnect:
+        print("[WS TEST] Client disconnected normally")
+    except Exception as e:
+        print(f"[WS TEST] Error: {e}")
+
+
+# ============================================================================
 # WebSocket: Real-time Chat
 # ============================================================================
 
@@ -67,47 +97,123 @@ async def chat_websocket(
     Auth: Token validated on handshake. No token = read-only.
     Creator (sender === room owner) gets isMod: true automatically.
     """
-    db = SessionLocal()
+    print("🟢" * 40)
+    print(f"🟢 ENDPOINT REACHED - streamer: {streamer_username}")
+    print(f"🟢 Token present: {token is not None}")
+    print("🟢" * 40)
+    
+    # CRITICAL: Accept the WebSocket FIRST
     try:
-        user = validate_ws_token(token, db)
-    finally:
-        db.close()
+        print("🔵 Attempting to accept WebSocket...")
+        await websocket.accept()
+        print("✅ WebSocket accepted successfully!")
+    except Exception as e:
+        print(f"❌ FAILED TO ACCEPT: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    
+    user = None
+    try:
+        print("🔵 Creating database session...")
+        db = SessionLocal()
+        try:
+            print("🔵 Validating token...")
+            user = validate_ws_token(token, db)
+            print(f"✅ Token validation: {'Success - ' + user.username if user else 'Failed/Anonymous'}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"⚠️ Token validation error (continuing as anonymous): {e}")
     
     username = user.username if user else None
+    user_id = user.id if user else None
+    is_mod = False
     is_creator = (username == streamer_username)
+    user_tier = 1
     
-    # Accept and join room with username tracking
-    await manager.connect(streamer_username, websocket, username)
+    if user:
+        # Check if user is a moderator for this channel
+        # (Using the new 5-tier system from User model)
+        user_tier = user.tier
+        
+        # Room owners are always Tier 5 (Broadcasters)
+        if is_creator:
+            user_tier = 5
+            streamer_user_id = user.id
+        else:
+            # Need streamer's ID for moderation checks
+            db = SessionLocal()
+            try:
+                streamer = db.query(User).filter(User.username == streamer_username).first()
+                streamer_user_id = streamer.id if streamer else None
+            finally:
+                db.close()
+            
+        if user_tier >= 2 or is_creator:
+            is_mod = True
+            
+    role_label = "Viewer"
+    if user_tier == 2: role_label = "Moderator"
+    elif user_tier == 3: role_label = "Sr Moderator"
+    elif user_tier == 4: role_label = "Admin"
+    elif user_tier == 5: role_label = "Broadcaster"
+    
+    print(f"✅ User: {username or 'anonymous'}, is_creator: {is_creator}, role: {role_label}")
+    
+    # Join room
+    if streamer_username not in manager.rooms:
+        manager.rooms[streamer_username] = []
+    manager.rooms[streamer_username].append((websocket, username))
+    print(f"✅ Added to room. Total connections: {len(manager.rooms[streamer_username])}")
     
     # Send personal connection confirmation
-    await manager.send_personal(websocket, {
-        "type": "system",
-        "id": f"sys-{int(time.time() * 1000)}",
-        "user": "System",
-        "text": f"Connected to {streamer_username}'s chat" + (f" as {username}" if username else " (read-only)"),
-        "timestamp": int(time.time() * 1000),
-        "isMod": True,
-        "isCreator": is_creator
-    })
+    try:
+        await manager.send_personal(websocket, {
+            "type": "system",
+            "id": f"sys-{int(time.time() * 1000)}",
+            "user": "System",
+            "text": f"Connected to {streamer_username}'s chat" + (f" as {username}" if username else " (read-only)"),
+            "timestamp": int(time.time() * 1000),
+            "isMod": is_mod,
+            "tier": user_tier,
+            "role": role_label,
+            "isCreator": is_creator
+        })
+        print("✅ Connection confirmation sent")
+    except Exception as e:
+        print(f"⚠️ Failed to send confirmation: {e}")
     
     # Send current slow mode state
-    await manager.send_personal(websocket, {
-        "type": "slow_mode",
-        "enabled": manager.is_slow_mode(streamer_username)
-    })
+    try:
+        await manager.send_personal(websocket, {
+            "type": "slow_mode",
+            "enabled": manager.is_slow_mode(streamer_username)
+        })
+    except Exception as e:
+        print(f"⚠️ Failed to send slow mode state: {e}")
     
     # Send active poll if one exists
-    active_poll = manager.get_poll(streamer_username)
-    if active_poll:
-        await manager.send_personal(websocket, {
-            "type": "poll_update",
-            **active_poll
-        })
+    try:
+        active_poll = manager.get_poll(streamer_username)
+        if active_poll:
+            await manager.send_personal(websocket, {
+                "type": "poll_update",
+                **active_poll
+            })
+    except Exception as e:
+        print(f"⚠️ Failed to send poll state: {e}")
     
     # Broadcast updated viewer list to all
-    await manager.broadcast_viewer_list(streamer_username)
-    
     try:
+        await manager.broadcast_viewer_list(streamer_username)
+        print("✅ Viewer list broadcasted")
+    except Exception as e:
+        print(f"⚠️ Failed to broadcast viewer list: {e}")
+    
+    # Continue with your existing message loop...
+    try:
+        print("✅ Entering message loop...")
         while True:
             raw = await websocket.receive_text()
             
@@ -119,7 +225,9 @@ async def chat_websocket(
                 })
                 continue
             
-            # ── Handle Standardized Poll Messages (Uppercase) ──────────
+            # ... [ALL YOUR EXISTING MESSAGE HANDLING CODE - KEEP AS IS]
+            # (Keep everything from "Handle Standardized Poll Messages" onwards)
+            
             msg_type = data.get("type")
             
             if msg_type == "POLL_VOTE":
@@ -132,7 +240,6 @@ async def chat_websocket(
                 
                 accepted = manager.vote_poll(streamer_username, username, option_index)
                 if accepted:
-                    # Broadcast the vote to everyone so UI updates in real-time
                     await manager.broadcast(streamer_username, {
                         "type": "POLL_VOTE",
                         "optionIndex": option_index
@@ -171,16 +278,13 @@ async def chat_websocket(
                 })
                 continue
 
-            # ── Legacy Poll Votes (for backward compatibility if needed) ──
             if msg_type == "poll_vote":
-                # ... (can be removed or kept as fallback)
                 pass
             
-            # ── Handle Commands (Legacy & Other) ──────────────────────
             if msg_type == "command":
-                if not is_creator:
+                if not is_mod:
                     await manager.send_personal(websocket, {
-                        "type": "error", "text": "Only the creator can use commands"
+                        "type": "error", "text": "Only moderators can use commands"
                     })
                     continue
                 
@@ -204,8 +308,12 @@ async def chat_websocket(
                 
                 elif action == "delete_message":
                     msg_id = data.get("msg_id")
-                    if msg_id:
-                        await manager.broadcast_message_deleted(streamer_username, msg_id)
+                    if msg_id and user_tier >= 2:
+                        await manager.broadcast(streamer_username, {
+                            "type": "message.deleted",
+                            "msg_id": msg_id
+                        })
+                        # Persistence logic
                         db = SessionLocal()
                         try:
                             db_id_str = msg_id.replace("msg-", "")
@@ -222,26 +330,16 @@ async def chat_websocket(
                             db.rollback()
                         finally:
                             db.close()
-                
-                elif action == "brb":
-                    enabled = data.get("enabled", False)
-                    await manager.broadcast(streamer_username, {
-                        "type": "brb",
-                        "enabled": enabled
+                            
+                elif action == "timeout_user" or action == "ban_user":
+                    # DEPRECATED: Use HTTP API /api/moderation/ban or /api/moderation/timeout
+                    # to ensure reasons are provided and validated.
+                    await manager.send_personal(websocket, {
+                        "type": "error", 
+                        "text": "Mod action must be performed via the Moderation Panel (API) to include a reason."
                     })
-                    await manager.broadcast(streamer_username, {
-                        "type": "system",
-                        "id": f"sys-{int(time.time() * 1000)}",
-                        "user": "System",
-                        "text": "🛡️ Stream paused (BRB)" if enabled else "▶️ Stream resumed",
-                        "timestamp": int(time.time() * 1000),
-                        "isMod": True
-                    })
-
                 continue
             
-
-            # ── Handle Chat Messages ────────────────────────────────
             if not username:
                 await manager.send_personal(websocket, {
                     "type": "error", "text": "You must be logged in to send messages"
@@ -252,7 +350,50 @@ async def chat_websocket(
             if not text:
                 continue
             
-            # Enforce slow mode for non-creators
+            
+            # Layer 3: Server-Side Validation (CRITICAL)
+            if not is_creator and username:
+                db = SessionLocal()
+                try:
+                    now = datetime.utcnow()
+                    
+                    # 1. Check for active ban
+                    ban = db.query(StreamBan).filter(
+                        StreamBan.channel_id == streamer_user_id,
+                        StreamBan.banned_user_id == user_id,
+                        or_(StreamBan.expires_at == None, StreamBan.expires_at > now)
+                    ).first()
+                    
+                    if ban:
+                        await manager.send_personal(websocket, {
+                            "type": "user.banned",
+                            "userId": user_id,
+                            "reason": ban.reason,
+                            "expires_at": ban.expires_at.isoformat() if ban.expires_at else None,
+                            "banned_by": "System" # Or lookup banned_by_id
+                        })
+                        continue
+                        
+                    # 2. Check for active timeout
+                    timeout = db.query(StreamTimeout).filter(
+                        StreamTimeout.channel_id == streamer_user_id,
+                        StreamTimeout.timed_out_user_id == user_id,
+                        StreamTimeout.expires_at > now
+                    ).order_by(StreamTimeout.expires_at.desc()).first()
+                    
+                    if timeout:
+                        time_left = int((timeout.expires_at - now).total_seconds())
+                        await manager.send_personal(websocket, {
+                            "type": "user.timedout",
+                            "userId": user_id,
+                            "reason": timeout.reason,
+                            "expires_at": timeout.expires_at.isoformat(),
+                            "secondsRemaining": time_left
+                        })
+                        continue
+                finally:
+                    db.close()
+                        
             if not is_creator and not manager.check_slow_mode_cooldown(streamer_username, username):
                 await manager.send_personal(websocket, {
                     "type": "error",
@@ -260,13 +401,11 @@ async def chat_websocket(
                 })
                 continue
             
-            # Truncate
             if len(text) > 500:
                 text = text[:500]
             
             timestamp = int(time.time() * 1000)
             
-            # Persist to DB
             db = SessionLocal()
             try:
                 chat_msg = ChatMessage(
@@ -295,30 +434,36 @@ async def chat_websocket(
             })
     
     except WebSocketDisconnect:
+        print(f"🔌 Client disconnected: {username or 'anonymous'}")
         manager.disconnect(streamer_username, websocket)
         await manager.broadcast_viewer_list(streamer_username)
-    except Exception:
+    except Exception as e:
+        print(f"❌ Error in message loop: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         manager.disconnect(streamer_username, websocket)
         await manager.broadcast_viewer_list(streamer_username)
-
 
 # ============================================================================
 # HTTP: Chat History
 # ============================================================================
 
-@router.get("/chat/history/{streamer_username}")
+@router.get("/history/{streamer_username}")
 def get_chat_history(
     streamer_username: str,
+    limit: int = 30,
     db: Session = Depends(get_db)
 ):
-    """Fetch the last 50 chat messages for a streamer's room."""
+    """Fetch the latest chat messages for a streamer's room and return chronologically."""
     messages = (
         db.query(ChatMessage)
         .filter(ChatMessage.room == streamer_username)
         .order_by(ChatMessage.created_at.desc())
-        .limit(50)
+        .limit(limit)
         .all()
     )
+    
+    # Reverse to chronological order (oldest first)
     messages.reverse()
     
     return [
@@ -331,63 +476,6 @@ def get_chat_history(
         }
         for msg in messages
     ]
-
-
-# ============================================================================
-# HTTP: Activity History
-# ============================================================================
-
-@router.get("/live/activity/history/{streamer_username}")
-def get_activity_history(
-    streamer_username: str,
-    db: Session = Depends(get_db)
-):
-    """Fetch the last 10 activity events for a streamer's room."""
-    activities = (
-        db.query(ActivityLog)
-        .filter(ActivityLog.room == streamer_username)
-        .order_by(ActivityLog.created_at.desc())
-        .limit(10)
-        .all()
-    )
-    activities.reverse()
-    
-    return [
-        {
-            "id": f"act-{act.id}",
-            "activity_type": act.activity_type,
-            "user": act.username,
-            "timestamp": int(act.created_at.timestamp() * 1000)
-        }
-        for act in activities
-    ]
-
-
-# ============================================================================
-# HTTP: Clip Logging
-# ============================================================================
-
-@router.post("/live/clip")
-def create_clip(
-    db: Session = Depends(get_db)
-):
-    """
-    Log a clip marker timestamp for future manual clipping.
-    Requires authentication via the Authorization header (handled by ApiClient).
-    """
-    from backend.core.security import decode_access_token as decode_token
-    from fastapi import Request
-    
-    # For simplicity, we log with a placeholder username (auth is via ApiClient)
-    clip = ClipLog(
-        room="system",
-        username="creator",
-        clip_timestamp=datetime.utcnow()
-    )
-    db.add(clip)
-    db.commit()
-    
-    return {"success": True, "clip_id": clip.id, "timestamp": clip.clip_timestamp.isoformat() + "Z"}
 
 
 # ============================================================================

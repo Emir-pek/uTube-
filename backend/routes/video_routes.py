@@ -506,9 +506,34 @@ def get_all_videos(
     
     if category: query = query.filter(Video.category == category)
     if search:
-        query = query.filter(
-            or_(Video.title.ilike(f"%{search}%"), Video.description.ilike(f"%{search}%"), Video.tags.ilike(f"%{search}%"))
-        )
+        from sqlalchemy import cast, String
+        # ── Smart Stemming / Query Expansion + Typo Forgiveness ──
+        search_words = search.strip().split()
+        search_variations = set([search.strip()])  # Always include the exact phrase
+        suffixes = ['ing', 'ers', 'er', 'ed', 'es', 's', 'lar', 'ler', 'r']
+        for word in search_words:
+            if len(word) > 3:
+                search_variations.add(word)
+                for suffix in suffixes:
+                    if word.endswith(suffix):
+                        stripped = word[:-len(suffix)]
+                        if len(stripped) >= 3:
+                            search_variations.add(stripped)
+                # Typo forgiveness hack (chop last 1 and 2 chars)
+                if len(word) >= 5:
+                    search_variations.add(word[:-1])
+                    search_variations.add(word[:-2])
+
+        search_conditions = []
+        for term in search_variations:
+            search_conditions.extend([
+                Video.title.ilike(f"%{term}%"),
+                Video.description.ilike(f"%{term}%"),
+                cast(Video.tags, String).ilike(f"%{term}%"),
+                Video.category.ilike(f"%{term}%"),
+                User.username.ilike(f"%{term}%")
+            ])
+        query = query.join(User, Video.user_id == User.id).filter(or_(*search_conditions))
     
     videos = query.order_by(Video.upload_date.desc()).offset(skip).limit(limit).all()
     
@@ -604,19 +629,45 @@ def semantic_search(
     except Exception:
         pass  # ML failure is fine — fallback handles it
 
-    # ── PHASE 2: UNCONDITIONAL LEXICAL FALLBACK ──
+    # ── PHASE 2: UNCONDITIONAL LEXICAL FALLBACK (with Smart Stemming) ──
     # If ML returned nothing for ANY reason, lexical search always fires.
     if not top_videos:
-        top_videos = db.query(Video).filter(
+        # Expand the query by stripping common EN/TR suffixes + typo forgiveness
+        words = clean_query.split()
+        variations = set([clean_query])  # Always search the exact phrase first
+
+        suffixes = ['ing', 'ers', 'er', 'ed', 'es', 's', 'lar', 'ler', 'r']
+        for word in words:
+            if len(word) > 3:  # Only stem words longer than 3 chars
+                variations.add(word)
+                for suffix in suffixes:
+                    if word.endswith(suffix):
+                        # e.g., 'gamer' minus 'r' = 'game'. 'gamers' minus 's' = 'gamer'
+                        stripped = word[:-len(suffix)]
+                        if len(stripped) >= 3:
+                            variations.add(stripped)
+                # Typo forgiveness hack (chop last 1 and 2 chars)
+                if len(word) >= 5:
+                    variations.add(word[:-1])
+                    variations.add(word[:-2])
+
+        # Build dynamic search conditions for all variations
+        search_conditions = []
+        for term in variations:
+            search_conditions.extend([
+                Video.title.ilike(f"%{term}%"),
+                Video.description.ilike(f"%{term}%"),
+                cast(Video.tags, String).ilike(f"%{term}%"),
+                Video.category.ilike(f"%{term}%"),
+                User.username.ilike(f"%{term}%")
+            ])
+
+        # Execute the Unconditional Fallback (joined with User for username search)
+        top_videos = db.query(Video).join(User, Video.user_id == User.id).filter(
             Video.visibility == "public",
             Video.status == "published",
             or_(Video.scheduled_at == None, Video.scheduled_at <= now),
-            or_(
-                Video.title.ilike(f"%{clean_query}%"),
-                Video.description.ilike(f"%{clean_query}%"),
-                cast(Video.tags, String).ilike(f"%{clean_query}%"),
-                Video.category.ilike(f"%{clean_query}%")
-            )
+            or_(*search_conditions)
         ).order_by(Video.view_count.desc()).limit(limit).all()
 
     # ── PHASE 3: Search for matching Channels ──

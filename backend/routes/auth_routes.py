@@ -34,7 +34,7 @@ from backend.database import get_db
 from backend.database.models import User, Subscription, Video, StreamLike, ActivityLog
 from backend.chat.manager import manager
 from backend.services.mail_service import send_verification_email
-from backend.core.config import THUMBNAILS_DIR, AVATARS_DIR, BANNERS_DIR
+from backend.core.config import THUMBNAILS_DIR, AVATARS_DIR, BANNERS_DIR, STORAGE_DIR, BACKGROUNDS_DIR
 from backend.core.security import (
     hash_password,
     verify_password,
@@ -50,7 +50,7 @@ from backend.core.security import (
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # Security scheme for JWT
-security = HTTPBearer()
+from backend.services.auth_service import security, get_current_user
 
 
 # ============================================================================
@@ -135,11 +135,13 @@ class UserResponse(BaseModel):
     is_verified: bool = False
     stream_title: Optional[str] = None
     stream_category: Optional[str] = None
+    stream_thumbnail: Optional[str] = None
     created_at: str
     subscriber_count: int = 0
     video_count: int = 0
     total_views: int = 0
     is_live: bool = False
+    is_staging: bool = False
     viewer_count: int = 0
     
     class Config:
@@ -160,6 +162,7 @@ class PublicProfileResponse(BaseModel):
     subscriber_count: int = 0
     video_count: int = 0
     is_live: bool = False
+    is_staging: bool = False
 
     class Config:
         from_attributes = True
@@ -190,87 +193,11 @@ class VerificationRequiredResponse(BaseModel):
     status: str = "verification_required"
 
 
+
 # ============================================================================
-# Dependency: Get Current User
+# Dependency: Get Optional User
 # ============================================================================
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-) -> User:
-    """
-    Dependency to get the current authenticated user from JWT token.
-    
-    Usage in routes:
-    ```python
-    @router.get("/protected")
-    def protected_route(current_user: User = Depends(get_current_user)):
-        return {"message": f"Hello {current_user.username}"}
-    ```
-    
-    Args:
-        credentials: HTTP Bearer token from Authorization header
-        db: Database session
-        
-    Returns:
-        User object if token is valid
-        
-    Raises:
-        HTTPException: If token is invalid or user not found
-    """
-    # credentials.credentials already contains just the token part
-    token = credentials.credentials.strip()
-    
-    # Decode token with detailed error handling
-    try:
-        payload = decode_access_token(token)
-    except JWTError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Could not validate credentials: {str(e)}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token decoding failed: {str(e)}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Get user ID from token and ensure it's an integer
-    try:
-        sub = payload.get("sub")
-        if sub is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token missing subject (user ID) claim",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        user_id = int(sub)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user ID format in token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Get user from database
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"User with ID {user_id} not found in database",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Block unverified users from accessing protected endpoints
-    if not user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified. Please verify your email before continuing."
-        )
-    
-    return user
 
 
 def get_optional_user(
@@ -572,12 +499,13 @@ async def live_stream_auth(request: Request, db: Session = Depends(get_db)):
             # Return 403 Forbidden to tell NMS to reject the publisher
             raise HTTPException(status_code=403, detail="Invalid stream key")
             
-        # Mark user as LIVE
-        user.is_live = True
+        # Mark user as Staging (not LIVE yet)
+        user.is_live = False
+        user.is_staging = True
         db.commit()
         
-        # Broadcast the status update to everyone in this user's room
-        await manager.broadcast_status_update(user.username, True)
+        # We DO broadcast a status update to signal staging so Live Studio frontend updates
+        await manager.broadcast_status_update(user.username, is_live=False, is_staging=True)
             
         # Return 200 OK to allow Node Media Server to publish the stream
         return {"status": "ok"}
@@ -603,15 +531,90 @@ async def live_publish_done(request: Request, db: Session = Depends(get_db)):
             user = db.query(User).filter(User.stream_key == stream_key).first()
             if user:
                 user.is_live = False
+                user.is_staging = False
                 db.commit()
                 print(f"[AUTH] User {user.username} is now offline.")
                 # Broadcast the status update to everyone in this user's room
-                await manager.broadcast_status_update(user.username, False)
+                await manager.broadcast_status_update(user.username, False, False)
                 
         return {"status": "ok"}
     except Exception as e:
         print(f"[AUTH ERROR] live-publish-done failed: {e}")
         return {"status": "ok"} # Always return 200 to NMS for done events
+
+
+from pydantic import BaseModel
+from typing import Optional
+
+class StartBroadcastRequest(BaseModel):
+    title: Optional[str] = None
+    stream_thumbnail: Optional[str] = None
+
+@router.post("/live/start-broadcast")
+async def start_broadcast(
+    request: StartBroadcastRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Transition a stream from Staging to Live successfully.
+    Called manually by the creator from the Live Studio when they are ready.
+    """
+    if not current_user.is_staging:
+        raise HTTPException(status_code=400, detail="Stream is not in staging mode. Please make sure OBS is connected.")
+        
+    current_user.is_staging = False
+    current_user.is_live = True
+    
+    # Save the thumbnail unconditionally, falling back to None if clear
+    current_user.stream_thumbnail = request.stream_thumbnail
+    if request.title:
+        current_user.stream_title = request.title
+    
+    # Clear old chat history for this stream session
+    from backend.database.models import ChatMessage
+    db.query(ChatMessage).filter(ChatMessage.room == current_user.username).delete()
+    db.commit()
+    
+    # Broadcast to watchers that the stream is now LIVE
+    await manager.broadcast_status_update(current_user.username, True, False)
+    
+    return {"status": "ok", "message": "Stream is now public"}
+
+
+@router.post("/live/end-broadcast")
+async def end_broadcast(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually end a broadcast from the Live Studio UI.
+    Resets the stream to completely offline.
+    """
+    # SAFETY GUARD: Check if OBS is still actively pushing to NMS
+    try:
+        nms_url = f"http://127.0.0.1:8080/api/streams/live/{current_user.stream_key}"
+        response = requests.get(nms_url, timeout=2)
+        if response.status_code == 200:
+            data = response.json()
+            # If there is a 'publisher' object, it means OBS is still streaming
+            if data.get('publisher'):
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Active stream detected! Please click 'Stop Streaming' in OBS first."
+                )
+    except requests.RequestException:
+        # If NMS is down, we allow the state reset
+        pass
+
+    current_user.is_live = False
+    current_user.is_staging = False
+    current_user.stream_thumbnail = None
+    db.commit()
+    
+    await manager.broadcast_status_update(current_user.username, False, False)
+    
+    return {"status": "ok", "message": "Broadcast ended."}
 
 
 def build_user_response(user: User, db: Session) -> UserResponse:
@@ -643,9 +646,12 @@ def build_user_response(user: User, db: Session) -> UserResponse:
         video_count=video_count,
         total_views=total_views,
         is_live=user.is_live,
+        is_staging=user.is_staging,
         viewer_count=user.viewer_count
     )
 
+
+import requests
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(
@@ -654,16 +660,25 @@ def get_current_user_info(
 ):
     """
     Get current authenticated user information.
-    
-    Requires valid JWT token in Authorization header:
-    Authorization: Bearer <token>
-    
-    Args:
-        current_user: Current authenticated user (from dependency)
-        
-    Returns:
-        User information with live stats
+    Includes active stream verification against NMS to clear zombie sessions.
     """
+    if current_user.is_live or current_user.is_staging:
+        try:
+            nms_url = f"http://127.0.0.1:8080/api/streams/live/{current_user.stream_key}"
+            response = requests.get(nms_url, timeout=1)
+            # If NMS returns anything other than 200, or the publisher is empty, clear the ghost state
+            if response.status_code != 200 or not response.json().get('publisher'):
+                print(f"[AUTH] Clearing ghost session for {current_user.username}")
+                current_user.is_live = False
+                current_user.is_staging = False
+                db.commit()
+        except requests.RequestException:
+            # If NMS is completely unreachable, assume the stream is down as a safety precaution
+            print(f"[AUTH WARNING] Node Media Server unreachable. Clearing ghost session for {current_user.username}")
+            current_user.is_live = False
+            current_user.is_staging = False
+            db.commit()
+
     return build_user_response(current_user, db)
 
 
@@ -1348,14 +1363,10 @@ async def toggle_live_like(
     }
 
 
-# ============================================================================
 # Background Library Management
 # ============================================================================
 
 from backend.database.models import UserBackground
-
-BACKGROUNDS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "backgrounds")
-os.makedirs(BACKGROUNDS_DIR, exist_ok=True)
 
 @router.post("/upload-background", response_model=BackgroundResponse)
 async def upload_background(
@@ -1493,7 +1504,7 @@ async def upload_stream_thumbnail(
         with open(filepath, "wb") as buffer:
             buffer.write(file_bytes)
             
-        db_path = f"/uploads/thumbnails/{filename}"
+        db_path = f"/storage/uploads/thumbnails/{filename}"
         current_user.stream_thumbnail = db_path
         
         db.commit()
@@ -1512,6 +1523,9 @@ def get_active_live_streams(db: Session = Depends(get_db)):
     """
     Get all users currently streaming live.
     """
-    live_users = db.query(User).filter(User.is_live == True).all()
+    live_users = db.query(User).filter(
+        User.is_live == True,
+        User.is_staging == False
+    ).all()
     
     return [build_user_response(user, db) for user in live_users]

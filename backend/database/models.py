@@ -51,11 +51,16 @@ class User(Base):
     # Live Streaming Metadata (new_update)
     stream_key = Column(String(100), unique=True, index=True, nullable=True)
     is_live = Column(Boolean, default=False, nullable=False, index=True)
+    is_staging = Column(Boolean, default=False, nullable=False, index=True)
     viewer_count = Column(Integer, default=0, nullable=False)
     stream_title = Column(String(100), nullable=True)
     stream_category = Column(String(50), nullable=True, default="Gaming")
     stream_thumbnail = Column(String(255), nullable=True, default=None)
     studio_bg_url = Column(String(500), nullable=True, default=None)
+    
+    # Moderation Tiers (1: Viewer, 2: Mod, 3: Sr Mod, 4: Admin, 5: Broadcaster)
+    tier = Column(Integer, default=1, nullable=False)
+    permissions = Column(JSON, nullable=True) # Specific JSON permissions if needed
     
     # Email Verification
     is_verified = Column(Boolean, default=False, nullable=False)
@@ -533,3 +538,75 @@ class StreamMarker(Base):
 
     def __repr__(self):
         return f"<StreamMarker(id={self.id}, room='{self.room}')>"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NEW: Livestream Moderation System
+# ══════════════════════════════════════════════════════════════════════════════
+
+class StreamModerator(Base):
+    """
+    Moderators assigned to specific streams/channels.
+    Roles: admin, senior_mod, moderator
+    """
+    __tablename__ = "stream_moderators"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    channel_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    moderator_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(20), nullable=False, default="moderator")  # 'admin', 'senior_mod', 'moderator'
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    __table_args__ = (UniqueConstraint('channel_id', 'moderator_id', name='uq_channel_mod'),)
+
+    def __repr__(self):
+        return f"<StreamModerator(channel={self.channel_id}, mod={self.moderator_id}, role='{self.role}')>"
+
+
+class StreamBan(Base):
+    """Banned users for a specific channel."""
+    __tablename__ = "stream_bans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    channel_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    banned_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    banned_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True) # Null if admin/mod deleted
+    reason = Column(String(255), nullable=True)
+    expires_at = Column(DateTime, nullable=True) # Null = permanent ban
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<StreamBan(channel={self.channel_id}, banned={self.banned_user_id})>"
+
+
+class StreamTimeout(Base):
+    """Temporarily timed-out users for a specific channel."""
+    __tablename__ = "stream_timeouts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    channel_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    timed_out_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    timed_out_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reason = Column(String(255), nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<StreamTimeout(channel={self.channel_id}, timed_out={self.timed_out_user_id})>"
+
+
+class ModerationActionLog(Base):
+    """Log of all moderation actions performed."""
+    __tablename__ = "moderation_action_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    action_type = Column(String(50), nullable=False) # ban, unban, timeout, promote, demote, delete_message
+    target_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    performed_by_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    channel_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    details = Column(JSON, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<ModerationActionLog(id={self.id}, type='{self.action_type}', by={self.performed_by_id})>"
+

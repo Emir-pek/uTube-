@@ -17,7 +17,7 @@ if sys.stdout.encoding != 'utf-8':
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -34,6 +34,7 @@ from backend.core.config import APP_NAME, APP_VERSION, CORS_ORIGINS, API_PREFIX,
 from backend.routes import auth_router, video_router, comment_router, like_router, trending_router, recommendation_router, chat_router
 from backend.routes.channel_routes import router as channel_router
 from backend.routes.stream_routes import router as stream_router
+from backend.routes.moderator_routes import router as moderator_router
 from backend.database import init_db
 from backend.services.cleanup_service import startup_cleanup, cleanup_loop
 
@@ -86,10 +87,45 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# ── Global Exception Handler: NEVER leak stack traces to the frontend ──
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+class DebugMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+    
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "websocket":
+            path = scope.get("path", "")
+            query_string = scope.get("query_string", b"").decode()
+            print("=" * 80)
+            print(f"🔵 WEBSOCKET REQUEST RECEIVED")
+            print(f"   Path: {path}")
+            print(f"   Query: {query_string}")
+            print(f"   Headers: {scope.get('headers', [])}")
+            print("=" * 80)
+        
+        await self.app(scope, receive, send)
+
+# Add this IMMEDIATELY after app = FastAPI(), before ANY other middleware
+app.add_middleware(DebugMiddleware)
+
+# ── Global Exception Handler: WebSocket-safe ──
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request, exc: Exception):
     import traceback
+    
+    # CRITICAL: WebSocket connections cannot receive JSONResponse.
+    # If we try to access request.method or return JSONResponse for a WS, the server crashes
+    # and the browser sees readyState: 3 / code: 1006.
+    if isinstance(request, WebSocket):
+        logger.error(f"Unhandled exception in WebSocket connection:\n{traceback.format_exc()}")
+        try:
+            await request.close(code=1011, reason="Internal server error")
+        except Exception:
+            pass  # Connection might already be closed
+        return  # Must return None for WebSocket
+    
+    # For HTTP requests, return JSON error as before
     logger.error(f"Unhandled exception on {request.method} {request.url.path}:\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=500,
@@ -105,32 +141,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Custom middleware to ensure CORS headers on /storage static file responses
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request as StarletteRequest
+# Custom ASGI middleware to ensure CORS headers on /storage static file responses
+# CRITICAL: Written as raw ASGI — BaseHTTPMiddleware is incompatible with WebSockets
+from starlette.datastructures import MutableHeaders
 
-class StaticFilesCORSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: StarletteRequest, call_next):
-        response = await call_next(request)
-        if request.url.path.startswith("/storage"):
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-        return response
+class StaticFilesCORSMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            # VIP BYPASS: Let WebSockets and lifespan events pass through untouched
+            return await self.app(scope, receive, send)
+
+        # For HTTP requests, intercept the response to add CORS on /storage paths
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if scope["path"].startswith("/storage"):
+                    # Overwrite instead of append to prevent double headers
+                    headers["access-control-allow-origin"] = "*"
+                    headers["access-control-allow-methods"] = "GET, HEAD, OPTIONS"
+                    headers["access-control-allow-headers"] = "*"
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 app.add_middleware(StaticFilesCORSMiddleware)
 
-# Mount static files securely using explicit absolute path
+# Mount static files securely using explicit relative path
 # We use /storage as the URL prefix to match urlHelper.js and config.py logic
-STORAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "storage"))
+os.makedirs("storage", exist_ok=True)
+os.makedirs("storage/uploads/thumbnails", exist_ok=True)
+os.makedirs("storage/backgrounds", exist_ok=True)
+os.makedirs("storage/uploads/banners", exist_ok=True)
 
-# Critical: Ensure directories exist before mounting
-os.makedirs(STORAGE_PATH, exist_ok=True)
-os.makedirs(os.path.join(STORAGE_PATH, "uploads", "thumbnails"), exist_ok=True)
-os.makedirs(os.path.join(STORAGE_PATH, "backgrounds"), exist_ok=True)
-os.makedirs(os.path.join(STORAGE_PATH, "uploads", "banners"), exist_ok=True)
-
-app.mount("/storage", StaticFiles(directory=STORAGE_PATH), name="storage")
+app.mount("/storage", StaticFiles(directory="storage"), name="storage")
 
 # Include routers
 app.include_router(auth_router, prefix=API_PREFIX)
@@ -141,6 +187,7 @@ app.include_router(like_router, prefix=API_PREFIX)
 app.include_router(channel_router, prefix=API_PREFIX)
 app.include_router(recommendation_router, prefix=API_PREFIX)
 app.include_router(stream_router, prefix=f"{API_PREFIX}/streams")
+app.include_router(moderator_router, prefix=API_PREFIX)
 
 # Chat routes: WS endpoint at /api/v1/ws/chat/... and HTTP at /api/v1/chat/history/...
 app.include_router(chat_router, prefix=API_PREFIX)

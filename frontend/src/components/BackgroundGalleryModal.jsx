@@ -113,12 +113,20 @@ const BackgroundGalleryModal = ({
         // 1. Strict MIME type validation
         const allowedTypes = ['video/mp4', 'video/webm'];
         if (!allowedTypes.includes(file.type)) {
-            toast.error("Invalid file type. Only MP4 and WebM videos are allowed.");
+            toast.error("Only MP4 and WebM videos are supported.");
             if (fileInputRef.current) fileInputRef.current.value = '';
             return;
         }
 
-        // 2. Metadata check using isolated video object
+        // 2. Size validation (50MB limit)
+        const MAX_SIZE = 50 * 1024 * 1024; // 50MB
+        if (file.size > MAX_SIZE) {
+            toast.error("File too large! Maximum size is 50MB.");
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
+
+        // 3. Metadata check using isolated video object
         const video = document.createElement('video');
         video.preload = 'metadata';
         const objectUrl = URL.createObjectURL(file);
@@ -159,9 +167,8 @@ const BackgroundGalleryModal = ({
         formData.append('file', selectedBgFile);
         if (bgNameInput.trim()) formData.append('name', bgNameInput.trim());
         try {
-            const res = await ApiClient.post('/auth/upload-background', formData, {
-                headers: { 'Content-Type': 'multipart-form-data' }
-            });
+            // Remove manual Content-Type set to let Axios auto-set boundary for FormData
+            const res = await ApiClient.post('/auth/upload-background', formData);
             setCustomBackgrounds(prev => [res.data, ...prev]);
 
             // Auto Select

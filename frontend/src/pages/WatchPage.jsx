@@ -7,6 +7,10 @@ import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import flvjs from 'flv.js';
 import axios from 'axios';
+import { motion, AnimatePresence } from 'framer-motion';
+import CustomWarningDialog from '../components/CustomWarningDialog';
+import BanReasonDialog from '../components/BanReasonDialog';
+import BanNotification from '../components/BanNotification';
 
 const API_BASE = 'http://' + window.location.hostname + ':8000/api/v1';
 
@@ -60,6 +64,38 @@ const WatchPage = () => {
     const [chatInput, setChatInput] = useState('');
     const [chatMessages, setChatMessages] = useState([]);
     const [wsStatus, setWsStatus] = useState('disconnected'); // 'connecting' | 'connected' | 'disconnected'
+    
+    // Moderation States
+    const [isCurrentUserMod, setIsCurrentUserMod] = useState(false);
+    const [currentUserTier, setCurrentUserTier] = useState(1);
+    const [currentUserRole, setCurrentUserRole] = useState(null);
+    const [isActionModalOpen, setIsActionModalOpen] = useState(false);
+    const [selectedMessage, setSelectedMessage] = useState(null);
+    const [showModeratorPanel, setShowModeratorPanel] = useState(false);
+    const [moderators, setModerators] = useState([]);
+    const [bannedUsers, setBannedUsers] = useState([]);
+    const [isRefreshingModData, setIsRefreshingModData] = useState(false);
+
+    const fetchModerationData = useCallback(async () => {
+        if (!username) return;
+        setIsRefreshingModData(true);
+        try {
+            const modsRes = await ApiClient.get(`/moderator/${username}/list`);
+            setModerators(modsRes.data);
+            const bansRes = await ApiClient.get(`/moderator/${username}/bans`);
+            setBannedUsers(bansRes.data);
+        } catch (error) {
+            console.error("Failed to fetch moderation data:", error);
+        } finally {
+            setIsRefreshingModData(false);
+        }
+    }, [username]);
+
+    useEffect(() => {
+        if (showModeratorPanel) {
+            fetchModerationData();
+        }
+    }, [showModeratorPanel, fetchModerationData]);
 
     // ── Poll State ────────────────────────────────────────────────────────
     const [activePoll, setActivePoll] = useState(null);
@@ -67,8 +103,16 @@ const WatchPage = () => {
     const [pollTimeLeft, setPollTimeLeft] = useState(0);
     const [pollPhase, setPollPhase] = useState('none'); // 'none' | 'active' | 'results'
 
-    // ── BRB State ──────────────────────────────────────────────────────
-    const [brbEnabled, setBrbEnabled] = useState(false);
+    // ── Moderation Enforcement (Current User) ───────────────────────────
+    const [showBanNotification, setShowBanNotification] = useState(false);
+    const [currentBanInfo, setCurrentBanInfo] = useState(null);
+    const [isBannedLocal, setIsBannedLocal] = useState(false);
+    const [timeoutExpiryLocal, setTimeoutExpiryLocal] = useState(null);
+    
+    // Moderator UI States
+    const [showBanReasonModal, setShowBanReasonModal] = useState(false);
+    const [pendingModAction, setPendingModAction] = useState({ action: '', duration: null, targetUser: null });
+
 
     // ── Sidebar State ────────────────────────────────────────────────────
     const [recommendedVideos, setRecommendedVideos] = useState([]);
@@ -82,6 +126,15 @@ const WatchPage = () => {
         Gaming: '🎮', Education: '🎓', Technology: '💻', 'Just Chatting': '💬',
         Music: '🎵', Entertainment: '🎬', Sports: '🏀', News: '📰',
         Science: '🔬', Art: '🎨', Cooking: '🍳', Travel: '✈️',
+    };
+    
+    // ── Components ────────────────────────────────────────────────────────
+    const UserBadge = ({ tier, isCreator }) => {
+        if (isCreator || tier === 5) return <span className="text-[9px] bg-red-500/20 text-red-400 border border-red-500/50 px-1 py-0.5 rounded uppercase tracking-wider font-bold">Broadcaster</span>;
+        if (tier === 4) return <span className="text-[10px] bg-purple-500/20 text-purple-400 border border-purple-500/40 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider backdrop-blur-sm shadow-[0_0_8px_rgba(168,85,247,0.2)]">Admin</span>;
+        if (tier === 3) return <span className="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/40 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider backdrop-blur-sm shadow-[0_0_8px_rgba(59,130,246,0.2)]">Sr Mod</span>;
+        if (tier === 2) return <span className="text-[10px] bg-[#00ffcc]/15 text-[#00ffcc] border border-[#00ffcc]/30 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider backdrop-blur-sm shadow-[0_0_8px_rgba(0,255,204,0.15)]">Mod</span>;
+        return null;
     };
 
     // ════════════════════════════════════════════════════════════════════════
@@ -341,8 +394,23 @@ const WatchPage = () => {
         toast.success(`Vote submitted!`);
     };
 
-    // ── Chat: History Disabled per requirements ──────────────────────────
+    // ── Chat: Fetch History on Join ───────────────────────────────────────
+    useEffect(() => {
+        if (!username || pageState !== 'ready') return;
 
+        const fetchChatHistory = async () => {
+            try {
+                const response = await ApiClient.get(`/history/${username}?limit=30`);
+                if (response.data && Array.isArray(response.data)) {
+                    setChatMessages(response.data);
+                }
+            } catch (error) {
+                console.error('[Chat] Failed to fetch chat history:', error);
+            }
+        };
+
+        fetchChatHistory();
+    }, [username, pageState]);
     // ── Chat: WebSocket Lifecycle ─────────────────────────────────────────
     useEffect(() => {
         if (pageState !== 'ready' || !username) return;
@@ -369,9 +437,35 @@ const WatchPage = () => {
                         case 'chat':
                         case 'system':
                             setChatMessages(prev => [...prev, parsedMessage]);
+                            // Detect if the server tells us we are a mod upon connecting
+                            if (parsedMessage.user === 'System' && parsedMessage.text.includes('Connected')) {
+                                setIsCurrentUserMod(!!parsedMessage.isMod);
+                                setCurrentUserTier(parsedMessage.tier || 1);
+                                setCurrentUserRole(parsedMessage.role || null);
+                            }
                             break;
-                        case 'message_deleted':
+                        case 'message.deleted':
                             setChatMessages(prev => prev.filter(m => m.id !== parsedMessage.msg_id));
+                            break;
+                        case 'user.banned':
+                            if (parsedMessage.userId === currentUser?.id || parsedMessage.username === currentUser?.username) {
+                                setCurrentBanInfo(parsedMessage);
+                                setShowBanNotification(true);
+                                setIsBannedLocal(true);
+                                setChatMessages(prev => prev.filter(m => m.user !== parsedMessage.username));
+                            } else {
+                                setChatMessages(prev => prev.filter(m => m.user !== parsedMessage.username));
+                            }
+                            break;
+                        case 'user.timedout':
+                            if (parsedMessage.userId === currentUser?.id || parsedMessage.username === currentUser?.username) {
+                                setCurrentBanInfo(parsedMessage);
+                                setShowBanNotification(true);
+                                setTimeoutExpiryLocal(parsedMessage.expires_at);
+                                // No need to clear messages for timeout usually
+                            } else {
+                                // Optional: system message for others if not suppressed
+                            }
                             break;
                         case 'POLL_START':
                             setActivePoll(parsedMessage.data);
@@ -412,14 +506,11 @@ const WatchPage = () => {
                                 toast.success('Stream is now LIVE!', { id: 'live-notif' });
                             }
                             break;
-                        case 'brb':
-                            setBrbEnabled(parsedMessage.enabled);
-                            break;
                         default:
                             break;
                     }
-                } catch {
-                    // Malformed message
+                } catch (err) {
+                    console.error("[Chat] Error parsing message:", err);
                 }
             };
 
@@ -460,6 +551,19 @@ const WatchPage = () => {
     const handleSendChat = (e) => {
         e.preventDefault();
         if (!chatInput.trim()) return;
+        
+        // Layer 1 & 2: Client-side enforcement
+        if (isBannedLocal) {
+            toast.error('You are banned from this channel.');
+            return;
+        }
+        
+        if (timeoutExpiryLocal && new Date() < new Date(timeoutExpiryLocal)) {
+            const secs = Math.ceil((new Date(timeoutExpiryLocal) - new Date()) / 1000);
+            toast.error(`You are timed out. Wait ${secs}s.`);
+            return;
+        }
+
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
             toast.error('Chat not connected');
             return;
@@ -471,6 +575,58 @@ const WatchPage = () => {
 
         wsRef.current.send(JSON.stringify({ text: chatInput.trim() }));
         setChatInput('');
+    };
+
+    // ── Moderation Action Handlers ───────────────────────────────────────
+    const handleModAction = (action, duration = null) => {
+        if (!selectedMessage) return;
+        
+        if (action === 'delete_message') {
+            if (!wsRef.current) return;
+            wsRef.current.send(JSON.stringify({
+                type: 'command',
+                action: 'delete_message',
+                msg_id: selectedMessage.id
+            }));
+            setIsActionModalOpen(false);
+            setSelectedMessage(null);
+            return;
+        }
+
+        // For ban/timeout, show the reason dialog
+        setPendingModAction({
+            action: action,
+            duration: duration,
+            targetUser: { username: selectedMessage.user }
+        });
+        setIsActionModalOpen(false);
+        setShowBanReasonModal(true);
+    };
+
+    const confirmModerationAction = async (reason) => {
+        if (!pendingModAction.targetUser) return;
+        
+        try {
+            const endpoint = pendingModAction.action === 'ban_user' ? '/moderation/ban' : '/moderation/timeout';
+            const payload = {
+                username: pendingModAction.targetUser.username,
+                reason: reason,
+                duration: pendingModAction.duration
+            };
+
+            const response = await ApiClient.post(endpoint, payload);
+            
+            if (response.data.success) {
+                toast.success(response.data.message);
+                setShowBanReasonModal(false);
+                setPendingModAction({ action: '', duration: null, targetUser: null });
+                setSelectedMessage(null);
+                fetchModerationData(); // Refresh mod lists
+            }
+        } catch (error) {
+            console.error("Moderation action failed:", error);
+            toast.error(error.response?.data?.detail || "Action failed");
+        }
     };
 
     // ── Auto-scroll Chat ─────────────────────────────────────────────────
@@ -574,17 +730,6 @@ const WatchPage = () => {
                             className="w-full h-full object-contain block"
                         />
 
-                        {/* BRB Overlay */}
-                        {brbEnabled && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/95 backdrop-blur-md z-50">
-                                <div className="relative mb-6">
-                                    <div className="absolute inset-0 bg-purple-500/20 blur-3xl rounded-full animate-pulse"></div>
-                                    <span className="text-6xl relative z-10">🛡️</span>
-                                </div>
-                                <h2 className="text-2xl font-black text-white/80 tracking-wider uppercase">Stream Paused</h2>
-                                <p className="text-zinc-500 text-sm mt-2">The streamer will be right back!</p>
-                            </div>
-                        )}
 
                         {/* Offline Overlay */}
                         {!isLive && (
@@ -786,7 +931,18 @@ const WatchPage = () => {
                 <div className="w-full xl:w-[360px] flex flex-col bg-zinc-900/40 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-xl h-[calc(100vh-180px)] overflow-hidden shrink-0 xl:sticky xl:top-28">
                     <div className="flex border-b border-zinc-800 shrink-0 bg-white/5">
                         <div className="flex-1 px-4 py-4 text-xs font-bold tracking-widest uppercase text-white border-b-2 border-red-500 flex items-center justify-between">
-                            <span>Live Chat</span>
+                            <span className="flex items-center gap-2">
+                                Live Chat
+                                {(isCurrentUserMod || isOwnChannel) && (
+                                    <button 
+                                        onClick={() => setShowModeratorPanel(true)}
+                                        className={`p-1.5 rounded-lg border transition-all ${showModeratorPanel ? 'bg-[#00ffcc]/20 border-[#00ffcc]/40 text-[#00ffcc]' : 'bg-white/5 border-white/10 text-white/40 hover:text-white hover:border-white/20'}`}
+                                        title="Moderator Panel"
+                                    >
+                                        🛡️
+                                    </button>
+                                )}
+                            </span>
                             <span className={`flex items-center gap-1.5 text-[10px] font-mono ${wsStatus === 'connected' ? 'text-green-400' :
                                 wsStatus === 'connecting' ? 'text-yellow-400' : 'text-zinc-500'
                                 }`}>
@@ -806,13 +962,43 @@ const WatchPage = () => {
                                     <p className="text-zinc-600 text-xs text-center py-8">No messages yet. Be the first to chat!</p>
                                 )}
                                 {chatMessages.map(msg => (
-                                    <div key={msg.id} className={`text-sm leading-relaxed ${msg.type === 'system' ? 'text-zinc-500 italic text-xs' : ''}`}>
-                                        <span className="font-bold inline-flex items-center gap-1.5 align-middle mr-2">
-                                            {msg.isMod && <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/50 px-1 py-0.5 rounded uppercase tracking-wider">Mod</span>}
-                                            <span className={msg.isMod ? 'text-green-400/90' : 'text-blue-400/90'}>{msg.user}</span>
-                                            <span className="text-zinc-600">:</span>
+                                    <div 
+                                        key={msg.id} 
+                                        className={`group relative text-sm leading-relaxed px-2 py-1 -mx-2 rounded transition-colors duration-150 ${
+                                            msg.type === 'system' ? 'text-zinc-500 italic text-xs' : 'hover:bg-[#00ffcc]/[0.03]'
+                                        }`}
+                                    >
+                                        <span 
+                                            className={`font-bold inline-flex items-center gap-1.5 align-middle mr-2 ${msg.type !== 'system' ? 'cursor-pointer' : ''}`}
+                                            onClick={(e) => {
+                                                if (msg.type !== 'system' && isCurrentUserMod) {
+                                                    setSelectedMessage(msg);
+                                                    setIsActionModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <UserBadge tier={msg.tier} isCreator={msg.isCreator} />
+                                            <span className={msg.isCreator ? 'text-red-400/90' : (msg.tier >= 2 ? 'text-[#00ffcc]/90' : 'text-blue-400/90')}>
+                                                {msg.user}
+                                            </span>
                                         </span>
                                         <span className="text-zinc-300 align-middle">{msg.text}</span>
+                                        
+                                        {/* Action Dots */}
+                                        {isCurrentUserMod && msg.type !== 'system' && (
+                                            <button 
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded-full transition-all text-zinc-400 hover:text-white"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedMessage(msg);
+                                                    setIsActionModalOpen(true);
+                                                }}
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                                </svg>
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                                 <div ref={chatEndRef} />
@@ -846,6 +1032,70 @@ const WatchPage = () => {
 
             </div>
 
+            {/* ═══ QUICK ACTION MODAL OVERLAY ═══ */}
+            {isActionModalOpen && selectedMessage && (
+                <div 
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+                    onClick={() => setIsActionModalOpen(false)}
+                >
+                    <div 
+                        className="bg-zinc-950/95 border border-[#00ffcc]/20 w-full max-w-[280px] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.5)] overflow-hidden scale-100 opacity-100 transition-all origin-center"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="flex justify-between items-center px-4 py-3 border-b border-zinc-800 bg-white/5">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-white flex items-center gap-1">
+                                    👤 {selectedMessage.user}
+                                    <UserBadge tier={selectedMessage.tier} isCreator={selectedMessage.user === username} />
+                                </span>
+                            </div>
+                            <button onClick={() => setIsActionModalOpen(false)} className="text-zinc-400 hover:text-white p-1">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        
+                        {/* Actions */}
+                        <div className="p-2 space-y-1">
+                            {/* Delete specific msg */}
+                            <button 
+                                onClick={() => handleModAction('delete_message')}
+                                className="w-full text-left px-3 py-2 text-xs font-semibold text-zinc-300 hover:bg-white/10 hover:text-white rounded flex items-center gap-2 transition-colors"
+                            >
+                                <span>🗑️</span> Delete this message
+                            </button>
+                            
+                            <hr className="border-zinc-800 my-1" />
+                            
+                             {/* Timeout Section */}
+                             {currentUserTier >= 2 && (
+                                 <div className="px-2 py-1">
+                                     <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">Timeout (Silent)</span>
+                                     <div className="flex gap-1">
+                                         <button onClick={() => handleModAction('timeout_user', 60)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-xs font-semibold transition-colors">1m</button>
+                                         <button onClick={() => handleModAction('timeout_user', 300)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-xs font-semibold transition-colors">5m</button>
+                                         <button onClick={() => handleModAction('timeout_user', 600)} className="flex-1 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 rounded text-xs font-semibold transition-colors">10m</button>
+                                     </div>
+                                 </div>
+                             )}
+
+                             {/* Ban Section */}
+                             {currentUserTier >= 3 && (
+                                 <div className="px-2 py-1">
+                                     <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2 mt-1">Permanent Actions</span>
+                                     <button 
+                                         onClick={() => handleModAction('ban_user')}
+                                         className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded text-xs font-bold transition-colors shadow-[0_0_10px_rgba(239,68,68,0.1)]"
+                                     >
+                                         BAN USER FOREVER
+                                     </button>
+                                 </div>
+                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ═══ FULLSCREEN RESULTS MODAL OVERRIDE ═══ */}
             {activePoll && pollPhase === 'results' && (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md">
@@ -874,6 +1124,101 @@ const WatchPage = () => {
                     </div>
                 </div>
             )}
+            {/* ── Moderator Panel (Slide-in) ── */}
+            <AnimatePresence>
+                {showModeratorPanel && (
+                    <div className="fixed inset-0 z-[150] overflow-hidden">
+                        <motion.div 
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            onClick={() => setShowModeratorPanel(false)}
+                            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                        />
+                        <motion.div 
+                            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                            className="absolute right-0 top-0 bottom-0 w-full max-w-sm bg-[#0a0a0f] border-l border-white/10 shadow-2xl flex flex-col pt-24"
+                        >
+                            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+                                <h2 className="text-xl font-black text-white tracking-[0.2em] uppercase flex items-center gap-3">
+                                    <span className="text-[#00ffcc] shadow-[0_0_15px_#00ffcc]">🛡️</span> Mod Tools
+                                </h2>
+                                <button onClick={() => setShowModeratorPanel(false)} className="p-2 hover:bg-white/10 rounded-full transition-all text-white/40 hover:text-white">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-white/10">
+                                {/* Section: My Status */}
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em] mb-4">My Status</h3>
+                                    <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <UserBadge role={currentUserRole || (isOwnChannel ? 'creator' : 'user')} isCreator={isOwnChannel} />
+                                            <span className="text-xs font-bold text-white/70">Session Active</span>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center gap-2 text-[10px] text-white/40"><span className="text-emerald-500">✓</span> Timeout (≤10min)</div>
+                                            <div className="flex items-center gap-2 text-[10px] text-white/40"><span className="text-emerald-500">✓</span> Delete messages</div>
+                                            {isOwnChannel && <div className="flex items-center gap-2 text-[10px] text-white/40"><span className="text-emerald-500">✓</span> Manage Moderators</div>}
+                                        </div>
+                                    </div>
+                                </section>
+
+                                {/* Section: Active Bans (Visible to Mods) */}
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em] mb-4">Active Bans</h3>
+                                    <div className="space-y-2">
+                                        {bannedUsers.length === 0 ? (
+                                            <div className="p-4 rounded-xl border border-dashed border-white/5 text-center text-[10px] text-white/20 italic">No active bans in this quadrant.</div>
+                                        ) : (
+                                            bannedUsers.map(ban => (
+                                                <div key={ban.username} className="flex justify-between items-center p-3 bg-white/[0.02] rounded-xl border border-white/5">
+                                                    <p className="text-sm font-bold text-white/80">{ban.username}</p>
+                                                    <button 
+                                                        onClick={async () => {
+                                                            try {
+                                                                await ApiClient.delete(`/moderator/${username}/unban/${ban.username}`);
+                                                                toast.success(`Unbanned ${ban.username}`);
+                                                                fetchModerationData();
+                                                            } catch (e) { toast.error("Failed to unban"); }
+                                                        }}
+                                                        className="text-[10px] font-bold text-[#00ffcc]/50 hover:text-[#00ffcc] uppercase tracking-widest"
+                                                    >Unban</button>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </section>
+                            </div>
+                            
+                            <div className="p-6 border-t border-white/10 bg-black/40">
+                                <button onClick={fetchModerationData} className="w-full py-3 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all">
+                                    Refresh Security Matrix
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+            {/* ═══ MODERATION REASON DIALOG ═══ */}
+            <BanReasonDialog
+                isOpen={showBanReasonModal}
+                onClose={() => {
+                    setShowBanReasonModal(false);
+                    setPendingModAction({ action: '', duration: null, targetUser: null });
+                }}
+                onConfirm={confirmModerationAction}
+                username={pendingModAction.targetUser?.username}
+                actionType={pendingModAction.action === 'ban_user' ? 'ban' : 'timeout'}
+                duration={pendingModAction.duration}
+            />
+
+            {/* ═══ BAN/TIMEOUT NOTIFICATION ═══ */}
+            <BanNotification
+                isOpen={showBanNotification}
+                onClose={() => setShowBanNotification(false)}
+                banInfo={currentBanInfo}
+            />
         </div>
     );
 };

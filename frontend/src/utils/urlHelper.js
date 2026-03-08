@@ -10,10 +10,14 @@
  */
 
 // --- Environment-Driven Base URLs ---
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || '';
-const FLV_BASE_URL = import.meta.env.VITE_FLV_BASE_URL || '/live';
-const RTMP_URL = import.meta.env.VITE_RTMP_URL || 'rtmp://127.0.0.1:1935/live';
+const IS_PROD = import.meta.env.PROD;
+// In dev, fallback to localhost:8000. In prod, fallback to origin.
+const FALLBACK_HOST = IS_PROD ? window.location.origin : 'http://localhost:8000';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (IS_PROD ? '/api' : 'http://localhost:8000/api');
+const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || (IS_PROD ? '' : 'http://localhost:8000');
+const FLV_BASE_URL = import.meta.env.VITE_FLV_BASE_URL || 'http://localhost:8080/live';
+const RTMP_URL = import.meta.env.VITE_RTMP_URL || 'rtmp://localhost:1935/live';
 
 // WebSocket URL — auto-derive from current host in dev, explicit in prod
 const WS_BASE_URL = import.meta.env.VITE_WS_URL ||
@@ -41,10 +45,16 @@ export const getValidUrl = (path, fallback) => {
         normalizedPath = `/${normalizedPath}`;
     }
 
-    // Static media paths: /storage/* is served directly by the
-    // backend (proxied in dev by Vite, served by Nginx in production).
-    // These must NOT get the /api prefix.
-    if (normalizedPath.startsWith('/storage') || normalizedPath.startsWith('/uploads')) {
+    // Static media paths: /storage/* is served directly by the backend.
+    // Legacy DB paths starting with /uploads or /backgrounds must be prefixed with /storage
+    // Also handle cases where /api/ was accidentally included in the stored path
+    if (normalizedPath.startsWith('/api/uploads') || normalizedPath.startsWith('/api/backgrounds')) {
+        normalizedPath = normalizedPath.replace('/api/', '/storage/');
+    } else if (normalizedPath.startsWith('/uploads') || normalizedPath.startsWith('/backgrounds')) {
+        normalizedPath = `/storage${normalizedPath}`;
+    }
+
+    if (normalizedPath.startsWith('/storage')) {
         return `${MEDIA_BASE_URL}${normalizedPath}`;
     }
 
