@@ -41,6 +41,7 @@ const LiveStudio = () => {
 
     useEffect(() => {
         const getDevices = async () => {
+            if (!navigator.mediaDevices) return;
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const audioIns = devices.filter(d => d.kind === 'audioinput');
@@ -50,8 +51,14 @@ const LiveStudio = () => {
             } catch (e) { }
         };
         getDevices();
-        navigator.mediaDevices.addEventListener('devicechange', getDevices);
-        return () => navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+        if (navigator.mediaDevices) {
+            navigator.mediaDevices.addEventListener('devicechange', getDevices);
+        }
+        return () => {
+            if (navigator.mediaDevices) {
+                navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+            }
+        };
     }, []);
 
     // ── Test Camera Effect ────────────────────────────────────────────────
@@ -557,10 +564,10 @@ const LiveStudio = () => {
     // ── FIX: Background Tab Freeze (Live Edge Catch-up) ──────────────────
     useEffect(() => {
         const handleVisibility = () => {
-            if (!document.hidden && videoRef.current && videoRef.current.buffered.length > 0) {
-                const bufferedEnd = videoRef.current.buffered.end(videoRef.current.buffered.length - 1);
-                if (bufferedEnd - videoRef.current.currentTime > 2) {
-                    videoRef.current.currentTime = bufferedEnd; // Jump to live edge
+            if (!document.hidden && testVideoRef.current && testVideoRef.current.buffered && testVideoRef.current.buffered.length > 0) {
+                const bufferedEnd = testVideoRef.current.buffered.end(testVideoRef.current.buffered.length - 1);
+                if (bufferedEnd - testVideoRef.current.currentTime > 2) {
+                    testVideoRef.current.currentTime = bufferedEnd; // Jump to live edge
                 }
             }
         };
