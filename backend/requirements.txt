@@ -29,3 +29,5 @@ requests
 # Image Processing
 pillow
 
+pytest
+pytest-asyncio

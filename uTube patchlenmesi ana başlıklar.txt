@@ -1,7 +1,0 @@
-uTube patchlenmesi ana başlıklar
-
-- video etkileşim verileri işlevsel hale getirilecek(yorum, beğeni, abone olma)
-- paylaşma mekanızması etkinleştirilecek
-- advanced ui tasarımı
-- video oynatıcısının tasarımı ve işlevselliği 
-- sitenin konusunun öğrenci platformundan genel video platformuna dönüştürülmesi  

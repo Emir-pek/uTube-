@@ -2,12 +2,25 @@
     "name": "utube-workspace",
     "version": "1.0.0",
     "description": "Unified workflow for uTube project",
+    "workspaces": [
+        "frontend",
+        "rtmp-server",
+        "backend"
+    ],
     "scripts": {
-        "backend": "python -m uvicorn backend.app:app --reload --host 0.0.0.0 --port 8000",
-        "frontend": "npm run dev --prefix frontend",
-        "dev": "concurrently \"npm run backend\" \"npm run frontend\""
+        "postinstall": "python -m pip install -r backend/requirements.txt",
+        "backend": "python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000 --log-level warning",
+        "frontend": "wait-on tcp:127.0.0.1:8000 && npm run dev --prefix frontend",
+        "media": "node rtmp-server/server.js",
+        "dev": "cls && concurrently --raw \"npm run backend\" \"npm run frontend\" \"npm run media\"",
+        "scan": "codeql database create codeql-db --language=python --source-root . --overwrite && codeql database analyze codeql-db --format=csv --output=codeql-report.csv --download"
     },
     "devDependencies": {
-        "concurrently": "^8.2.2"
+        "concurrently": "^8.2.2",
+        "wait-on": "^9.0.4"
+    },
+    "dependencies": {
+        "dotenv": "^17.3.1",
+        "ffmpeg": "^0.0.4"
     }
 }

@@ -16,7 +16,7 @@ if __name__ == "__main__":
     print("uTube Database Initialization")
     print("=" * 60)
     print(f"\nDatabase location: {DATABASE_FILE}")
-    print(f"\nCreating tables for models:")
+    print("\nCreating tables for models:")
     print("  - User")
     print("  - Video")
     print("  - Comment")

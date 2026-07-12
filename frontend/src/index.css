@@ -2,9 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  scrollbar-gutter: stable;
+}
+
 :root {
   font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   color-scheme: dark;
+  --accent: #FFFFFF;
+  --accent-glow: rgba(255, 255, 255, 0.4);
 }
 
 body {
@@ -13,6 +19,7 @@ body {
   min-height: 100vh;
   color: #FFFFFF;
   overflow-x: hidden;
+  overflow-y: scroll;
 }
 
 .glass {
@@ -20,16 +27,6 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.video-card-hover {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.video-card-hover:hover {
-  transform: scale(1.05);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  z-index: 10;
 }
 
 /* Custom Scrollbar */
@@ -48,4 +45,112 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #444;
+}
+
+/* Sidebar custom scrollbar — thinner and more subtle */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 0, 0, 0.4);
+}
+
+/* Video Player — volume range slider */
+.volume-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 99px;
+  background: transparent;
+  outline: none;
+}
+
+/* Track: 4px tall, red-fill via --vol CSS variable */
+.volume-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(to right,
+      #ef4444 0%,
+      #ef4444 var(--vol, 0%),
+      rgba(255, 255, 255, 0.2) var(--vol, 0%));
+  border-radius: 99px;
+  height: 4px;
+}
+
+/* Thumb: 12px, vertically centred on 4px track → margin-top: (4/2)-(12/2) = -4px */
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4);
+  margin-top: -4px;
+  transition: transform 0.15s;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.3);
+}
+
+/* Firefox track */
+.volume-slider::-moz-range-track {
+  background: linear-gradient(to right,
+      #ef4444 0%,
+      #ef4444 var(--vol, 0%),
+      rgba(255, 255, 255, 0.2) var(--vol, 0%));
+  border-radius: 99px;
+  height: 4px;
+}
+
+/* Firefox thumb */
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4);
+}
+
+/* Moderator Badge */
+.badge-mod {
+  background: rgba(0, 255, 204, 0.15);
+  color: #00ffcc;
+  border: 1px solid rgba(0, 255, 204, 0.3);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Quick Action Modal */
+.mod-modal {
+  background: rgba(10, 10, 15, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 255, 204, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Panel Glass Effect */
+.mod-panel {
+  background: rgba(15, 15, 25, 0.6);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Playlist sidebar — animated equalizer bars for currently playing video */
+@keyframes equalize {
+  0%, 100% { transform: scaleY(0.4); }
+  50%       { transform: scaleY(1); }
 }

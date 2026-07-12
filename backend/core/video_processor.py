@@ -20,9 +20,11 @@ from backend.core.config import (
     VIDEOS_DIR,
     THUMBNAILS_DIR,
     TEMP_DIR,
+    TEMP_UPLOADS_DIR,
     ALLOWED_VIDEO_FORMATS,
     MAX_VIDEO_SIZE_MB
 )
+from backend.core.security import secure_resolve
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -80,176 +82,135 @@ def validate_video_file(filename: str, file_size: int) -> Tuple[bool, str]:
 
 def get_video_duration(video_path: str) -> Optional[float]:
     """
-    Extract video duration using ffprobe (part of FFmpeg).
-    
-    Args:
-        video_path: Path to the video file
-        
-    Returns:
-        Duration in seconds, or None if extraction fails
-        
-    Example:
-        >>> duration = get_video_duration("video.mp4")
-        >>> print(f"Duration: {duration} seconds")
-        Duration: 125.5 seconds
+    Extract video duration using cv2 (OpenCV).
     """
     try:
-        cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-show_entries', 'format=duration',
-            '-of', 'default=noprint_wrappers=1:nokey=1',
-            video_path
-        ]
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
         
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=30
-        )
-        
-        if result.returncode == 0:
-            duration = float(result.stdout.strip())
-            return duration
+        if fps > 0 and frame_count > 0:
+            return float(frame_count / fps)
         else:
-            logger.error(f"ffprobe error: {result.stderr}")
+            logger.error(f"cv2 error: Invalid fps ({fps}) or frame_count ({frame_count})")
             return None
             
-    except subprocess.TimeoutExpired:
-        logger.error("ffprobe timeout")
-        return None
     except Exception as e:
-        logger.error(f"Error extracting duration: {e}")
+        logger.error(f"Error extracting duration with cv2: {e}")
         return None
 
 
 def generate_thumbnail(video_path: str, thumbnail_path: str, timestamp: float = 1.0) -> bool:
     """
-    Generate a thumbnail from a video using FFmpeg.
-    
-    Args:
-        video_path: Path to the source video file
-        thumbnail_path: Path where thumbnail should be saved
-        timestamp: Time in seconds to capture the thumbnail (default: 1.0)
-        
-    Returns:
-        True if successful, False otherwise
-        
-    Example:
-        >>> success = generate_thumbnail("video.mp4", "thumb.jpg", timestamp=2.0)
-        >>> print("Thumbnail generated!" if success else "Failed")
+    Generate a thumbnail from a video using OpenCV instead of FFmpeg.
     """
     try:
+        import cv2
         # Ensure thumbnail directory exists
         Path(thumbnail_path).parent.mkdir(parents=True, exist_ok=True)
         
-        # FFmpeg command to extract a frame at the specified timestamp
-        cmd = [
-            'ffmpeg',
-            '-i', video_path,
-            '-ss', str(timestamp),  # Seek to timestamp
-            '-vframes', '1',  # Extract 1 frame
-            '-vf', 'scale=320:-1',  # Scale to width 320, maintain aspect ratio
-            '-y',  # Overwrite output file
-            thumbnail_path
-        ]
+        video = cv2.VideoCapture(video_path)
+        fps = video.get(cv2.CAP_PROP_FPS)
+        frame_number = int(timestamp * fps) if fps > 0 else 30
         
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=30
-        )
+        video.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        success, frame = video.read()
         
-        if result.returncode == 0 and os.path.exists(thumbnail_path):
+        if success:
+            height, width = frame.shape[:2]
+            new_width = 320
+            new_height = int(height * (new_width / width))
+            resized = cv2.resize(frame, (new_width, new_height))
+            
+            cv2.imwrite(thumbnail_path, resized)
+            video.release()
             logger.info(f"Thumbnail generated: {thumbnail_path}")
             return True
         else:
-            logger.error(f"FFmpeg error: {result.stderr.decode()}")
+            video.release()
+            logger.error("Failed to read video frame for thumbnail")
             return False
             
-    except subprocess.TimeoutExpired:
-        logger.error("FFmpeg timeout")
+    except ImportError:
+        logger.error("OpenCV not installed, unable to generate thumbnail")
         return False
     except Exception as e:
-        logger.error(f"Error generating thumbnail: {e}")
+        logger.error(f"Error generating thumbnail with OpenCV: {e}")
         return False
 
 
 def generate_preview_frames(video_path: str, output_dir: str, video_id: int, count: int = 3) -> list:
     """
     Extract 3 high-quality frames from video for thumbnail selection.
-    
-    SIMPLIFIED: No AI processing - just raw, clean frame extraction.
-    
-    Args:
-        video_path: Path to the source video file
-        output_dir: Directory to save preview frames (e.g., previews/)
-        video_id: Video ID for naming files
-        count: Number of frames to extract (default: 3, FIXED)
-        
-    Returns:
-        List of preview frame filenames (e.g., ["video_123_preview_1.jpg", ...])
-        
-    Example:
-        >>> frames = generate_preview_frames("video.mp4", "previews/", 123)
-        >>> print(frames)
-        ['video_123_preview_1.jpg', 'video_123_preview_2.jpg', 'video_123_preview_3.jpg']
+    Uses OpenCV instead of FFmpeg.
     """
     try:
-        # Get video duration
-        duration = get_video_duration(video_path)
+        import cv2
+        # Validate video path - Check TEMP/STAGING first!
+        src_path = Path(video_path)
+        if not src_path.exists():
+            try:
+                temp_path = secure_resolve(TEMP_UPLOADS_DIR, video_path)
+                if temp_path.exists():
+                    src_path = temp_path
+                    logger.info(f"Video found in TEMP staging: {src_path}")
+                else:
+                    raise FileNotFoundError
+            except (Exception, FileNotFoundError):
+                try:
+                    perm_path = secure_resolve(VIDEOS_DIR, video_path)
+                    if perm_path.exists():
+                        src_path = perm_path
+                        logger.info(f"Video found in VIDEOS storage: {src_path}")
+                    else:
+                        raise FileNotFoundError
+                except (Exception, FileNotFoundError):
+                    logger.error(f"Video file not found or access denied: {video_path}")
+                    return []
+        
+        duration = get_video_duration(str(src_path))
         if not duration or duration < 1:
             logger.warning(f"Invalid video duration: {duration}")
             return []
         
-        # Ensure output directory exists
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         
-        # Extract exactly 3 frames at 33%, 66%, 90%
         percentages = [0.33, 0.66, 0.90]
         timestamps = [duration * p for p in percentages]
         
-        # Generate preview frames
         preview_frames = []
-        for i, timestamp in enumerate(timestamps, 1):
-            filename = f"video_{video_id}_preview_{i}.jpg"
-            output_path = os.path.join(output_dir, filename)
-            
-            # CRITICAL: Clean FFmpeg command - NO TEXT OVERLAYS, NO FILTERS except scaling
-            cmd = [
-                'ffmpeg',
-                '-ss', str(timestamp),  # Seek to timestamp (fast seek before input)
-                '-i', video_path,
-                '-vframes', '1',  # Extract 1 frame
-                '-q:v', '2',  # Highest quality (2 is best)
-                '-vf', 'scale=1280:-1',  # HD quality, maintain aspect ratio
-                '-y',  # Overwrite
-                output_path
-            ]
-            
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=30
-            )
-            
-            if result.returncode == 0 and os.path.exists(output_path):
-                preview_frames.append(filename)
-                logger.info(f"Preview frame {i} generated at {timestamp:.2f}s ({percentages[i-1]*100:.0f}%): {filename}")
-            else:
-                logger.error(f"Failed to generate preview {i}: {result.stderr.decode()}")
+        cap = cv2.VideoCapture(str(src_path))
+        fps = cap.get(cv2.CAP_PROP_FPS)
         
+        for i, timestamp in enumerate(timestamps, 1):
+            frame_num = int(timestamp * fps)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+            success, frame = cap.read()
+            if success:
+                filename = f"video_{video_id}_preview_{i}.jpg"
+                output_path = os.path.join(output_dir, filename)
+                
+                height, width = frame.shape[:2]
+                new_width = 1280
+                new_height = int(height * (new_width / width))
+                resized = cv2.resize(frame, (new_width, new_height))
+                cv2.imwrite(output_path, resized)
+                
+                preview_frames.append(filename)
+                logger.info(f"Preview frame {i} generated at {timestamp:.2f}s: {filename}")
+            else:
+                logger.error(f"Failed to generate preview {i} at timestamp {timestamp}")
+                
+        cap.release()
         return preview_frames
         
-    except subprocess.TimeoutExpired:
-        logger.error("FFmpeg timeout during preview generation")
+    except ImportError:
+        logger.error("OpenCV not installed, unable to generate previews")
         return []
     except Exception as e:
-        logger.error(f"Error generating preview frames: {e}")
+        logger.error(f"Error generating preview frames with OpenCV: {e}")
         return []
 
 
@@ -360,13 +321,7 @@ def cleanup_preview_frames(video_id: int, preview_dir: str) -> None:
 
 def get_video_metadata(video_path: str) -> dict:
     """
-    Extract comprehensive video metadata.
-    
-    Args:
-        video_path: Path to the video file
-        
-    Returns:
-        Dictionary with metadata (duration, resolution, codec, etc.)
+    Extract comprehensive video metadata using OpenCV.
     """
     metadata = {
         "duration": None,
@@ -377,37 +332,16 @@ def get_video_metadata(video_path: str) -> dict:
     }
     
     try:
-        # Get duration
+        import cv2
         metadata["duration"] = get_video_duration(video_path)
         
-        # Get resolution and codec using ffprobe
-        cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-select_streams', 'v:0',
-            '-show_entries', 'stream=width,height,codec_name,bit_rate',
-            '-of', 'json',
-            video_path
-        ]
-        
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=30
-        )
-        
-        if result.returncode == 0:
-            import json
-            data = json.loads(result.stdout)
-            if 'streams' in data and len(data['streams']) > 0:
-                stream = data['streams'][0]
-                metadata["width"] = stream.get("width")
-                metadata["height"] = stream.get("height")
-                metadata["codec"] = stream.get("codec_name")
-                metadata["bitrate"] = stream.get("bit_rate")
-        
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            metadata["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            metadata["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            # OpenCV doesn't easily provide codec name or bitrate without parsing fourcc
+            cap.release()
+            
     except Exception as e:
         logger.error(f"Error extracting metadata: {e}")
     
@@ -422,7 +356,7 @@ if __name__ == "__main__":
     # Test filename generation
     print("\n1. Unique Filename Generation:")
     filename = generate_unique_filename("my_video.mp4")
-    print(f"   Original: my_video.mp4")
+    print("   Original: my_video.mp4")
     print(f"   Unique: {filename}")
     
     # Test file validation

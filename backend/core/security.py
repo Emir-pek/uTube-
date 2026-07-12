@@ -10,11 +10,54 @@ Features:
 """
 
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Union
 import bcrypt
+import secrets
 from jose import JWTError, jwt
+from fastapi import HTTPException, status
+from pathlib import Path
+from email_validator import validate_email as validate_email_lib, EmailNotValidError
 
 from backend.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+
+import os
+
+def secure_resolve(base_dir: Path, sub_path: Union[str, Path]) -> Path:
+    """
+    Resolve a user-provided path and ensure it stays within the base directory.
+    Prevents Path Traversal vulnerabilities (CodeQL compliant).
+    """
+    try:
+        # Prevent absolute path injection by stripping leading slashes
+        sub_path_str = str(sub_path).lstrip("/\\")
+        
+        # Determine the absolute base directory
+        base_dir_str = os.path.abspath(str(base_dir))
+        
+        # Construct the final absolute target path
+        target_path_str = os.path.abspath(os.path.normpath(os.path.join(base_dir_str, sub_path_str)))
+        
+        # Ensure correct trailing slash on the prefix to prevent partial matches 
+        # (e.g., base_dir="/safe", target_path="/safe_hacked" -> would normally pass without trailing slash)
+        prefix = base_dir_str if base_dir_str.endswith(os.sep) else base_dir_str + os.sep
+        
+        # Validate that the target path is strictly within the base directory
+        # Allowing target_path_str == base_dir_str in case the root directory itself is being referenced.
+        if target_path_str != base_dir_str and not target_path_str.startswith(prefix):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Invalid file path."
+            )
+            
+        return Path(target_path_str)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: Invalid file path.")
+
+def generate_stream_key() -> str:
+    """Generate a secure, random stream key for OBS RTMP."""
+    return f"live_{secrets.token_hex(16)}"
 
 # Password hashing configuration
 # We use direct bcrypt for better compatibility with Python 3.13
@@ -61,26 +104,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """
-    Create a JWT access token.
-    
-    Args:
-        data: Dictionary of data to encode in the token (e.g., {"sub": user_id})
-        expires_delta: Optional custom expiration time
-        
-    Returns:
-        Encoded JWT token string
-        
-    Example:
-        >>> token = create_access_token({"sub": "user123"})
-        >>> print(token)
-        eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-    """
-    to_encode = data.copy()
-    
-    # Ensure 'sub' is a string (requirement for some JWT libraries)
-    if "sub" in to_encode:
-        to_encode["sub"] = str(to_encode["sub"])
+    # Build payload carefully to ensure all values are standard serializable strings/ints
+    to_encode = {}
+    for key, value in data.items():
+        to_encode[key] = str(value) if key == "sub" else value
     
     # Set expiration time
     if expires_delta:
@@ -88,11 +115,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
-    to_encode.update({"exp": expire})
+    to_encode["exp"] = expire
     
     # Encode the JWT
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict:
@@ -149,25 +175,48 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_email(email: str) -> bool:
+# Common disposable email domains
+DISPOSABLE_DOMAINS = {
+    'mailinator.com', '10minutemail.com', 'temp-mail.org', 'guerrillamail.com', 
+    'yopmail.com', 'throwawaymail.com', 'tempmail.com', 'getnada.com', 
+    'sharklasers.com', 'maildrop.cc'
+}
+
+def validate_email(email: str) -> tuple[bool, str]:
     """
-    Basic email validation.
+    Robust email validation using email-validator library and a disposable domain check.
     
     Args:
         email: Email address to validate
         
     Returns:
-        True if email format is valid, False otherwise
+        Tuple of (is_valid, error_message)
         
     Example:
         >>> validate_email("user@example.com")
-        True
+        (True, "")
         >>> validate_email("invalid-email")
-        False
+        (False, "The email address is not valid. It must have exactly one @-sign.")
+        >>> validate_email("user@mailinator.com")
+        (False, "Disposable email providers are not allowed.")
     """
-    import re
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
+    try:
+        # Check that the email address is valid. Turn on check_deliverability
+        # for first-time validations to ensure the domain has MX records.
+        valid = validate_email_lib(email, check_deliverability=True)
+        
+        # Extract the normalized domain
+        domain = valid.domain.lower()
+        
+        # Check against blacklist
+        if domain in DISPOSABLE_DOMAINS:
+            return False, "Disposable email providers are not allowed."
+            
+        return True, ""
+        
+    except EmailNotValidError as e:
+        # The exception message is human-readable and specific to the exact problem
+        return False, str(e)
 
 
 # Test the security functions
@@ -178,21 +227,21 @@ if __name__ == "__main__":
     # Test password hashing
     password = "TestPassword123"
     hashed = hash_password(password)
-    print(f"\n1. Password Hashing:")
+    print("\n1. Password Hashing:")
     print(f"   Original: {password}")
     print(f"   Hashed: {hashed[:50]}...")
     print(f"   Verify correct: {verify_password(password, hashed)}")
     print(f"   Verify wrong: {verify_password('WrongPassword', hashed)}")
     
     # Test JWT token
-    print(f"\n2. JWT Token:")
+    print("\n2. JWT Token:")
     token = create_access_token({"sub": "user123", "username": "john_doe"})
     print(f"   Token: {token[:50]}...")
     decoded = decode_access_token(token)
     print(f"   Decoded: {decoded}")
     
     # Test password validation
-    print(f"\n3. Password Validation:")
+    print("\n3. Password Validation:")
     test_passwords = ["weak", "WeakPass", "weakpass123", "StrongPass123"]
     for pwd in test_passwords:
         valid, msg = validate_password_strength(pwd)
@@ -200,7 +249,7 @@ if __name__ == "__main__":
         print(f"   {status} '{pwd}': {msg if msg else 'Valid'}")
     
     # Test email validation
-    print(f"\n4. Email Validation:")
+    print("\n4. Email Validation:")
     test_emails = ["user@example.com", "invalid", "test@test", "valid.email@domain.co.uk"]
     for email in test_emails:
         valid = validate_email(email)

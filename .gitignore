@@ -1,35 +1,49 @@
+# === Python / Backend Çöpleri ===
 __pycache__/
 *.pyc
-backend/database/utube.db
-storage/
-.env
-<<<<<<< Updated upstream
-node_modules/
-=======
+venv/
+backend/tests/
+
+# === Node.js / Frontend Çöpleri ===
 node_modules/
 dist/
-venv/
-# CodeQL Local Scans
-codeql-db/
-guvenlik-raporu.csv
-# Database
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# === Veritabanı Dosyaları (GİZLİ) ===
 *.db
 *.sqlite
 *.sqlite3
 *.db-journal
 *.db-wal
 *.db-shm
+backend/database/utube.db
 
-CodeQL Artifacts
+# === Medya ve Depolama ===
+storage/
+*.mp4
+*.tmp
+
+# === Ortam Değişkenleri (Environment) ===
+.env
+.env.local
+.env.development
+.env.staging
+.env*.local
+!.env.example
+!.env.production
+
+# === Git & İşletim Sistemi Geçici Dosyaları ===
+git_*_temp.txt
+git_current_branch.txt
+.DS_Store
+Thumbs.db
+
+# === CodeQL ve Güvenlik Raporları ===
 codeql-db/
 codeql-report.csv
-*.mp4
-codeql-report.csv
+guvenlik-raporu.csv
 
-# Other projects (not part of uTube)
-<<<<<<< Updated upstream
+# === Diğer Projeler ===
 zekosbazaar-website/
->>>>>>> Stashed changes
-=======
-zekosbazaar-website/
->>>>>>> Stashed changes

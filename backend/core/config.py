@@ -40,12 +40,14 @@ UPLOADS_DIR = STORAGE_DIR / "uploads"
 VIDEOS_DIR = UPLOADS_DIR / "videos"
 THUMBNAILS_DIR = UPLOADS_DIR / "thumbnails"
 AVATARS_DIR = UPLOADS_DIR / "avatars"
+BANNERS_DIR = UPLOADS_DIR / "banners"
+BACKGROUNDS_DIR = STORAGE_DIR / "backgrounds"
 PREVIEWS_DIR = UPLOADS_DIR / "previews"  # Phase 6: AI thumbnail generation frames
 TEMP_DIR = STORAGE_DIR / "temp"
-TEMP_UPLOADS_DIR = UPLOADS_DIR / "temp"
+TEMP_UPLOADS_DIR = STORAGE_DIR / "temp"
 
 # Ensure storage directories exist
-for directory in [STORAGE_DIR, UPLOADS_DIR, VIDEOS_DIR, THUMBNAILS_DIR, AVATARS_DIR, PREVIEWS_DIR, TEMP_DIR, TEMP_UPLOADS_DIR]:
+for directory in [STORAGE_DIR, UPLOADS_DIR, VIDEOS_DIR, THUMBNAILS_DIR, AVATARS_DIR, BANNERS_DIR, PREVIEWS_DIR, BACKGROUNDS_DIR, TEMP_DIR, TEMP_UPLOADS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -57,7 +59,15 @@ CORS_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:8000",
+    "http://37.148.214.28",
+    "http://37.148.214.28:3000",
+    "http://37.148.214.28:8000",
 ]
+
+# Allow overriding via environment variable
+env_cors = os.getenv("CORS_ORIGINS")
+if env_cors:
+    CORS_ORIGINS.extend([origin.strip() for origin in env_cors.split(",")])
 
 # Pagination
 DEFAULT_PAGE_SIZE = 20

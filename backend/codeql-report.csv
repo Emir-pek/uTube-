@@ -1,0 +1,19 @@
+"Uncontrolled data used in path expression","Accessing paths influenced by users can allow an attacker to access unexpected resources.","error","This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].","/routes/video_routes.py","686","36","686","58"
+"Uncontrolled data used in path expression","Accessing paths influenced by users can allow an attacker to access unexpected resources.","error","This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].","/routes/video_routes.py","692","25","692","52"
+"Uncontrolled data used in path expression","Accessing paths influenced by users can allow an attacker to access unexpected resources.","error","This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:604:5:604:12""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:604:5:604:12""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:604:5:604:12""]].
+This path depends on a [[""user-provided value""|""relative:///routes/video_routes.py:605:5:605:15""]].","/routes/video_routes.py","692","55","692","69"
+"Clear-text logging of sensitive information","Logging sensitive information without encryption or hashing can expose it to an attacker.","error","This expression logs [[""sensitive data (password)""|""relative:///core/security.py:221:16:221:32""]] as clear text.","/core/security.py","224","11","224","36"
+"Clear-text logging of sensitive information","Logging sensitive information without encryption or hashing can expose it to an attacker.","error","This expression logs [[""sensitive data (password)""|""relative:///core/security.py:226:33:226:65""]] as clear text.","/core/security.py","226","11","226","67"
+"Clear-text logging of sensitive information","Logging sensitive information without encryption or hashing can expose it to an attacker.","error","This expression logs [[""sensitive data (password)""|""relative:///core/security.py:227:31:227:70""]] as clear text.","/core/security.py","227","11","227","72"
+"Clear-text logging of sensitive information","Logging sensitive information without encryption or hashing can expose it to an attacker.","error","This expression logs [[""sensitive data (password)""|""relative:///core/security.py:238:22:238:73""]] as clear text.
+This expression logs [[""sensitive data (password)""|""relative:///core/security.py:240:22:240:52""]] as clear text.","/core/security.py","242","15","242","63"

@@ -14,9 +14,15 @@ from typing import List, Optional
 from collections import Counter
 
 from backend.database import get_db
-from backend.database.models import User, Video, Like
+from backend.database.models import User, Video, Like, Subscription
 from backend.routes.auth_routes import get_current_user, get_optional_user
-from backend.routes.video_routes import VideoListResponse, AuthorResponse, get_thumbnail_url
+from backend.routes.video_routes import (
+    VideoListResponse, 
+    AuthorResponse, 
+    get_thumbnail_url, 
+    get_video_url, 
+    parse_tags
+)
 
 # Create router
 router = APIRouter(prefix="/feed", tags=["Recommendations"])
@@ -51,7 +57,11 @@ def get_recommended_feed(
         if category:
             conditions.append(Video.category == category)
             
-        context_query = db.query(Video.id).filter(or_(*conditions))
+        context_query = db.query(Video.id).filter(
+            or_(*conditions),
+            Video.status == 'published',
+            Video.visibility == 'public'
+        )
         
         if exclude_id:
             context_query = context_query.filter(Video.id != exclude_id)
@@ -61,7 +71,10 @@ def get_recommended_feed(
         
     # 2. Discovery factor (20%)
     # Random videos from different categories
-    discovery_query = db.query(Video.id)
+    discovery_query = db.query(Video.id).filter(
+        Video.status == 'published',
+        Video.visibility == 'public'
+    )
     
     # Exclude current video and already picked contextual videos
     exclude_ids = recommended_ids.copy()
@@ -75,13 +88,17 @@ def get_recommended_feed(
     if category:
         discovery_query = discovery_query.filter(Video.category != category)
         
-    discovery_videos = discovery_query.order_by(func.random()).limit(limit_discovery).all()
+    discovery_videos = discovery_query.order_by(Video.view_count.desc()).limit(limit_discovery).all()
     recommended_ids.extend([v.id for v in discovery_videos])
     
     # 3. Fill remaining slots if needed (e.g. not enough different categories)
     if len(recommended_ids) < limit:
         remaining = limit - len(recommended_ids)
-        refill_query = db.query(Video.id).filter(~Video.id.in_(recommended_ids))
+        refill_query = db.query(Video.id).filter(
+            ~Video.id.in_(recommended_ids),
+            Video.status == 'published',
+            Video.visibility == 'public'
+        )
         if exclude_id:
             refill_query = refill_query.filter(Video.id != exclude_id)
             
@@ -101,12 +118,16 @@ def get_recommended_feed(
         VideoListResponse(
             id=video.id,
             title=video.title,
+            video_url=get_video_url(video.video_filename, is_temp=False),
             thumbnail_url=get_thumbnail_url(video.thumbnail_filename),
             view_count=video.view_count,
-            upload_date=video.upload_date.isoformat(),
+            upload_date=video.upload_date.isoformat() + "Z",
             duration=video.duration,
             category=video.category,
+            tags=parse_tags(video.tags),
             like_count=video.like_count,
+            status=video.status,
+            visibility=video.visibility,
             author=AuthorResponse(
                 id=video.author.id,
                 username=video.author.username,
@@ -115,4 +136,63 @@ def get_recommended_feed(
             )
         )
         for video in ordered_videos
+    ]
+
+
+@router.get("/subscriptions", response_model=List[VideoListResponse])
+def get_subscription_feed(
+    limit: int = 20,
+    skip: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get latest videos from channels the current user is subscribed to.
+    Returns videos sorted by upload date (newest first).
+    """
+    if limit > 50:
+        limit = 50
+
+    # Get IDs of users the current user follows
+    followed_ids = db.query(Subscription.following_id).filter(
+        Subscription.follower_id == current_user.id
+    ).all()
+    followed_ids = [fid[0] for fid in followed_ids]
+
+    if not followed_ids:
+        return []
+
+    # Get latest videos from those users
+    videos = (
+        db.query(Video)
+        .filter(Video.user_id.in_(followed_ids))
+        .filter(Video.status == 'published', Video.visibility == 'public')
+        .order_by(Video.upload_date.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        VideoListResponse(
+            id=video.id,
+            title=video.title,
+            video_url=get_video_url(video.video_filename, is_temp=False),
+            thumbnail_url=get_thumbnail_url(video.thumbnail_filename),
+            view_count=video.view_count,
+            upload_date=video.upload_date.isoformat() + "Z",
+            duration=video.duration,
+            category=video.category,
+            tags=parse_tags(video.tags),
+            like_count=video.like_count,
+            status=video.status,
+            visibility=video.visibility,
+            author=AuthorResponse(
+                id=video.author.id,
+                username=video.author.username,
+                profile_image=video.author.profile_image,
+                video_count=video.author.videos.count()
+            )
+        )
+        for video in videos
     ]

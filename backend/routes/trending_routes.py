@@ -6,11 +6,13 @@ Returns trending videos for Netflix-style hero carousel.
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, case
 from typing import List
+import traceback
 
 from backend.database import get_db
-from backend.database.models import Video
-from backend.routes.video_routes import VideoListResponse, AuthorResponse, get_thumbnail_url
+from backend.database.models import Video, Like, Comment
+from backend.routes.video_routes import VideoListResponse, AuthorResponse, get_thumbnail_url, get_video_url
 
 # Create router
 router = APIRouter(prefix="/videos", tags=["Trending"])
@@ -38,10 +40,26 @@ def get_trending_videos(
     if limit > 20:
         limit = 20
     
-    # Query top viewed videos with joined author relationship
+    # Subquery to natively count likes without relying on the python hybrid property
+    like_count_sq = db.query(func.count(Like.id)).filter(
+        Like.video_id == Video.id, Like.is_dislike == False
+    ).correlate(Video).scalar_subquery()
+
+    # Subquery to natively count comments per video
+    comment_count_sq = db.query(func.count(Comment.id)).filter(
+        Comment.video_id == Video.id
+    ).correlate(Video).scalar_subquery()
+
+    # Query videos ordered by (likes + comments) / max(views, 1) descending
+    # Multiply by 1.0 to force floating point division
+    ratio_expr = (
+        func.coalesce(like_count_sq, 0) + func.coalesce(comment_count_sq, 0)
+    ) * 1.0 / case((Video.view_count == 0, 1), else_=Video.view_count)
+    
     videos = db.query(Video)\
         .options(joinedload(Video.author))\
-        .order_by(Video.view_count.desc())\
+        .filter(Video.status == 'published', Video.visibility == 'public')\
+        .order_by(ratio_expr.desc())\
         .limit(limit)\
         .all()
     
@@ -50,9 +68,10 @@ def get_trending_videos(
         VideoListResponse(
             id=video.id,
             title=video.title,
+            video_url=get_video_url(video.video_filename),
             thumbnail_url=get_thumbnail_url(video.thumbnail_filename),
             view_count=video.view_count,
-            upload_date=video.upload_date.isoformat(),
+            upload_date=video.upload_date.isoformat() + "Z",
             duration=video.duration,
             category=video.category,
             like_count=video.like_count,

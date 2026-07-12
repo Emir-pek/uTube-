@@ -173,7 +173,7 @@ def create_synthetic_users(db, count=20):
             username=username,
             email=email,
             password_hash=hash_password("TestPass123"),
-            profile_image="default_avatar.png",
+            profile_image=None,
             is_synthetic=1,  # Mark as synthetic
             created_at=datetime.utcnow() - timedelta(days=random.randint(1, 365))
         )
@@ -302,10 +302,10 @@ def seed_database():
         print("\n" + "="*60)
         print("✅ Seeding Complete!")
         print("="*60)
-        print(f"  Users:    20 synthetic users created")
-        print(f"  Videos:   50 videos across 5 categories")
-        print(f"  Likes:    200 like interactions")
-        print(f"  Comments: 100 comment interactions")
+        print("  Users:    20 synthetic users created")
+        print("  Videos:   50 videos across 5 categories")
+        print("  Likes:    200 like interactions")
+        print("  Comments: 100 comment interactions")
         print("="*60 + "\n")
         
         print("📊 Category Distribution:")

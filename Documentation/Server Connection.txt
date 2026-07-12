@@ -1,0 +1,54 @@
+ssh root@37.148.214.28
+Tx2#Ri5!Do9!Wk4! 
+cd /var/www/uTube
+
+find /var/www/uTube/backend -name "*.db" -delete --> Veritabanını silme
+ardından backendi yeniden başlat --> pm2 restart utube-backend
+
+1. Eski Hayalet Dosyaları Yok Et:
+İçerideki tüm eski videoları, fotoğrafları ve thumbnailleri siliyoruz (Sadece içindeki dosyaları siler, klasörü bırakır):
+
+Bash
+rm -rf /var/www/uTube/storage/uploads/avatars/*
+rm -rf /var/www/uTube/storage/uploads/videos/*
+rm -rf /var/www/uTube/storage/uploads/thumbnails/*
+rm -rf /var/www/uTube/storage/uploads/previews/*
+
+2. Eksik Klasörleri Yarat (404 Hatası İçin):
+Eğer backend bu klasörleri kendi açamıyorsa diye, işi garantiye alıp biz açıyoruz:
+
+Bash
+mkdir -p /var/www/uTube/storage/uploads/avatars
+mkdir -p /var/www/uTube/storage/uploads/videos
+mkdir -p /var/www/uTube/storage/uploads/thumbnails
+mkdir -p /var/www/uTube/storage/uploads/previews
+
+chmod -R 755 /var/www/uTube/storage --> nginx'e klasör okuma izni verme
+
+nginx -t		 --
+systemctl restart nginx  -- bu iki komut nginx'i yeniden başlatır.
+
+🛠️ Sunucu İçin Tek Bir "Ufak Dokunuş" Gerekecek
+Sohbeti (WebSocket) sunucuya taşıdığımızda Nginx'e sadece şu iki satırı eklememiz gerekecek (WebSockets normal HTTP'den biraz daha farklıdır, "Upgrade" ister):
+
+Nginx
+# Nginx'e "Yol ver, bu bir WebSocket paketidir" diyoruz
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+Bunu yaptığımız an, uTube senin sunucunda gerçek zamanlı bir dev haline gelecek. Yani sen yayını açtığında, dünyanın öbür ucundaki biri gelip senin yayınına chat'ten "ZBABOOO" yazabilecek! 🌍💬
+
+pm2 logs utube-backend --lines 50
+
+# Bütün güncel haritayı GitHub'dan indir
+git fetch origin
+
+# Ana dala (main) geç
+git checkout main
+
+# Sunucudaki kodları, GitHub'daki main branch'inin EN SON haliyle ez (Kusursuz eşitleme)
+git reset --hard origin/main
+
+cd frontend
+npm install
+npm run build
+cd ..

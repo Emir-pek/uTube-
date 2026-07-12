@@ -1,0 +1,8 @@
+{
+    "name": "utube-backend",
+    "version": "1.0.0",
+    "description": "Backend for uTube application",
+    "scripts": {
+        "scan": "codeql database create codeql-db --language=python --source-root . --overwrite && codeql database analyze codeql-db codeql/python-queries --format=csv --output=codeql-report.csv --download"
+    }
+}
