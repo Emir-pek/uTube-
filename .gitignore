@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 venv/
+backend/tests/
 
 # === Node.js / Frontend Çöpleri ===
 node_modules/
@@ -39,10 +40,10 @@ git_current_branch.txt
 .DS_Store
 Thumbs.db
 
-# === Tests ===
-backend/tests/
-
 # === CodeQL ve Güvenlik Raporları ===
 codeql-db/
 codeql-report.csv
 guvenlik-raporu.csv
+
+# === Diğer Projeler ===
+zekosbazaar-website/
